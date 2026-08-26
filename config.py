@@ -16,4 +16,4 @@ SIGNAL_BOT = "https://t.me/AIGOLDASSISTANT_BOT?start"
 # PUBLIC PERFORMANCE CHANNEL
 # =========================================================
 
-PERFORMANCE_CHANNEL_ID = -1002782196938
+PUBLIC_CHANNEL_ID = -1002782196938
