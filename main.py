@@ -5,9 +5,7 @@ import re
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
-
 from aiogram.filters import CommandStart
-
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -15,7 +13,6 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton
 )
-
 from aiogram.exceptions import TelegramBadRequest
 
 from config import (
@@ -27,7 +24,6 @@ from config import (
 )
 
 from packages import PACKAGE_MAP
-
 from spreadsheet import save_member
 
 
@@ -60,11 +56,27 @@ dp = Dispatcher()
 
 
 # =========================================================
+# PERFORMANCE SETTINGS
+# =========================================================
+
+# Lot default performance
+LOT_SIZE = 0.01
+
+# XAUUSD:
+# 1 pip = 0.01 harga
+# 100 pips = $10 untuk lot 0.01
+PIP_SIZE = 0.01
+
+# Nilai 1 pip untuk lot 0.01
+# 1.00 harga = $1 untuk lot 0.01
+DOLLAR_PER_PRICE = 1.0
+
+
+# =========================================================
 # TEMP STORAGE
 # =========================================================
 
 user_packages = {}
-
 user_proofs = {}
 
 
@@ -79,7 +91,8 @@ def is_admin(user_id: int) -> bool:
 
     try:
         return int(user_id) in [
-            int(x) for x in ADMIN_IDS
+            int(x)
+            for x in ADMIN_IDS
         ]
 
     except Exception:
@@ -87,10 +100,66 @@ def is_admin(user_id: int) -> bool:
 
 
 # =========================================================
-# SAFE EDIT REPLY MARKUP
+# SAFE CALLBACK ANSWER
 # =========================================================
 
-async def remove_keyboard(message: Message):
+async def safe_callback_answer(
+    callback: CallbackQuery,
+    text: str = "",
+    show_alert: bool = False
+):
+    """
+    Menghindari error:
+    query is too old
+    response timeout expired
+    """
+
+    try:
+
+        await callback.answer(
+            text,
+            show_alert=show_alert
+        )
+
+    except TelegramBadRequest as e:
+
+        error_text = str(e).lower()
+
+        if (
+            "query is too old" in error_text
+            or
+            "response timeout" in error_text
+            or
+            "query id is invalid" in error_text
+        ):
+
+            logger.warning(
+                "Callback sudah expired: %s",
+                e
+            )
+
+        else:
+
+            logger.warning(
+                "Callback error: %s",
+                e
+            )
+
+    except Exception as e:
+
+        logger.warning(
+            "Callback error: %s",
+            e
+        )
+
+
+# =========================================================
+# SAFE REMOVE KEYBOARD
+# =========================================================
+
+async def remove_keyboard(
+    message: Message
+):
     """
     Menghapus inline keyboard tanpa membuat bot crash
     jika keyboard sudah tidak ada.
@@ -129,7 +198,9 @@ async def remove_keyboard(message: Message):
 # =========================================================
 
 @dp.message(CommandStart())
-async def start(message: Message):
+async def start(
+    message: Message
+):
 
     logger.info(
         "START diterima | user_id=%s | username=%s",
@@ -176,10 +247,10 @@ lebih terstruktur, dan tanpa noise."
 
 🚀 <b>FITUR PREMIUM</b>
 
-📈 <b>Analisa XAUUSD Premium</b>
-🧠 <b>Smart Money Concept</b>
-⚡ <b>Market Intelligence</b>
-🤖 <b>AI Assistant Telegram</b>
+📈 Analisa XAUUSD Premium
+🧠 Smart Money Concept
+⚡ Market Intelligence
+🤖 AI Assistant Telegram
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -323,14 +394,10 @@ Silakan pilih paket untuk melanjutkan.
 
     )
 
-    try:
-
-        await callback.answer(
-            "Silakan pilih paket membership"
-        )
-
-    except Exception:
-        pass
+    await safe_callback_answer(
+        callback,
+        "Silakan pilih paket membership"
+    )
 
 
 # =========================================================
@@ -355,9 +422,10 @@ async def show_payment(
 
     if package_key not in PACKAGE_MAP:
 
-        await callback.answer(
+        await safe_callback_answer(
+            callback,
             "Paket tidak ditemukan.",
-            show_alert=True
+            True
         )
 
         return
@@ -394,7 +462,7 @@ Rp {data['price']:,}
 2️⃣ Lakukan pembayaran
 3️⃣ Kirim bukti pembayaran ke chat ini
 
-📸 Screenshot bukti pembayaran
+📸 Screenshot pembayaran
 harus terlihat jelas.
 
 ━━━━━━━━━━━━━━━━━━
@@ -418,14 +486,10 @@ bersama <b>XAU AI Assistant Gold</b>.
 
     )
 
-    try:
-
-        await callback.answer(
-            "Paket berhasil dipilih"
-        )
-
-    except Exception:
-        pass
+    await safe_callback_answer(
+        callback,
+        "Paket berhasil dipilih"
+    )
 
 
 # =========================================================
@@ -464,14 +528,10 @@ setelah bukti diterima.
         parse_mode="HTML"
     )
 
-    try:
-
-        await callback.answer(
-            "Silakan upload bukti pembayaran"
-        )
-
-    except Exception:
-        pass
+    await safe_callback_answer(
+        callback,
+        "Silakan upload bukti pembayaran"
+    )
 
 
 # =========================================================
@@ -516,9 +576,8 @@ untuk dikirim ke Admin."
 
 ━━━━━━━━━━━━━━━━━━
 
-Status:
-
-🟡 Menunggu verifikasi Admin
+🟡 <b>Status:</b>
+Menunggu verifikasi Admin
 
 Klik tombol di bawah untuk
 mengirim permintaan pengecekan.
@@ -558,12 +617,10 @@ async def verify(
 
     if not package_key or not proof:
 
-        await callback.answer(
-
+        await safe_callback_answer(
+            callback,
             "⚠️ Data belum lengkap",
-
-            show_alert=True
-
+            True
         )
 
         return
@@ -672,14 +729,10 @@ setelah membership aktif.
 
     )
 
-    try:
-
-        await callback.answer(
-            "Dikirim ke Admin"
-        )
-
-    except Exception:
-        pass
+    await safe_callback_answer(
+        callback,
+        "Dikirim ke Admin"
+    )
 
 
 # =========================================================
@@ -697,9 +750,10 @@ async def approve(
         callback.from_user.id
     ):
 
-        await callback.answer(
+        await safe_callback_answer(
+            callback,
             "Anda bukan admin.",
-            show_alert=True
+            True
         )
 
         return
@@ -718,12 +772,10 @@ async def approve(
 
     if not package_key:
 
-        await callback.answer(
-
+        await safe_callback_answer(
+            callback,
             "Data paket tidak ditemukan",
-
-            show_alert=True
-
+            True
         )
 
         return
@@ -741,9 +793,10 @@ async def approve(
             e
         )
 
-        await callback.answer(
+        await safe_callback_answer(
+            callback,
             "Gagal mengambil data user.",
-            show_alert=True
+            True
         )
 
         return
@@ -876,14 +929,10 @@ dan user sudah menerima akses.
 
     )
 
-    try:
-
-        await callback.answer(
-            "Member aktif"
-        )
-
-    except Exception:
-        pass
+    await safe_callback_answer(
+        callback,
+        "Member aktif"
+    )
 
 
 # =========================================================
@@ -901,9 +950,10 @@ async def reject(
         callback.from_user.id
     ):
 
-        await callback.answer(
+        await safe_callback_answer(
+            callback,
             "Anda bukan admin.",
-            show_alert=True
+            True
         )
 
         return
@@ -959,14 +1009,10 @@ diverifikasi.
 
     )
 
-    try:
-
-        await callback.answer(
-            "Payment rejected"
-        )
-
-    except Exception:
-        pass
+    await safe_callback_answer(
+        callback,
+        "Payment rejected"
+    )
 
 
 # =========================================================
@@ -1032,9 +1078,15 @@ async def sent_to_user(
 
         await message.answer(
 
-            f"✅ <b>Pesan berhasil dikirim</b>\n\n"
-            f"🆔 Target: <code>{target_id}</code>\n"
-            f"💬 Isi: {text_to_send}",
+            f"""
+✅ <b>PESAN BERHASIL DIKIRIM</b>
+
+🆔 Target:
+<code>{target_id}</code>
+
+💬 Pesan:
+{text_to_send}
+""",
 
             parse_mode="HTML"
 
@@ -1044,9 +1096,15 @@ async def sent_to_user(
 
         await message.answer(
 
-            f"❌ <b>Pesan gagal dikirim</b>\n\n"
-            f"🆔 Target: <code>{target_id}</code>\n"
-            f"⚠️ Error: <code>{e}</code>",
+            f"""
+❌ <b>PESAN GAGAL DIKIRIM</b>
+
+🆔 Target:
+<code>{target_id}</code>
+
+⚠️ Error:
+<code>{e}</code>
+""",
 
             parse_mode="HTML"
 
@@ -1057,72 +1115,519 @@ async def sent_to_user(
 # PERFORMANCE PARSER
 # =========================================================
 
-def parse_performance(text: str):
+def parse_date_from_text(
+    text: str
+):
     """
-    Membaca format:
+    Membaca tanggal dari:
 
-    🕐 07:00 → ✅ TP
-    🕐 08:00 → ❌ SL
+    📅 26 Agustus 2026
 
-    Menghasilkan list:
+    atau:
+
+    📅 26 August 2026
+
+    Jika tidak ditemukan,
+    menggunakan tanggal hari ini.
+    """
+
+    pattern = re.compile(
+        r"(\d{1,2})\s+"
+        r"(Januari|Februari|Maret|April|Mei|Juni|Juli|Agustus|September|Oktober|November|Desember|"
+        r"January|February|March|April|May|June|July|August|September|October|November|December)"
+        r"\s+(\d{4})",
+        re.IGNORECASE
+    )
+
+    match = pattern.search(
+        text
+    )
+
+    if not match:
+
+        return datetime.now()
+
+    day = int(
+        match.group(1)
+    )
+
+    month_name = (
+        match.group(2).lower()
+    )
+
+    year = int(
+        match.group(3)
+    )
+
+    months = {
+
+        "januari": 1,
+        "februari": 2,
+        "maret": 3,
+        "april": 4,
+        "mei": 5,
+        "juni": 6,
+        "juli": 7,
+        "agustus": 8,
+        "september": 9,
+        "oktober": 10,
+        "november": 11,
+        "desember": 12,
+
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "october": 10,
+        "december": 12
+    }
+
+    month = months.get(
+        month_name
+    )
+
+    if not month:
+
+        return datetime.now()
+
+    try:
+
+        return datetime(
+            year,
+            month,
+            day
+        )
+
+    except ValueError:
+
+        return datetime.now()
+
+
+# =========================================================
+# PERFORMANCE PARSER
+# =========================================================
+
+def parse_performance(
+    text: str
+):
+    """
+    Membaca beberapa format:
+
+    🕐 07:00 → Entry 4637.00 → TP1 4647.00
+
+    🕐 08:00 → Entry 4637.00 → TP2 4657.00
+
+    🕐 09:00 → Entry 4637.00 → SL 4627.00
+
+    🕐 10:00 → PENDING
+
+    🕐 11:00 → NO SIGNAL
+
+    Hasil:
+
     [
-        ("07:00", "TP"),
-        ("08:00", "SL")
+        {
+            "time": "07:00",
+            "status": "TP1",
+            "entry": 4637.00,
+            "target": 4647.00
+        }
     ]
     """
 
     results = []
 
-    pattern = re.compile(
+    lines = text.splitlines()
 
-        r"(\d{1,2}:\d{2})"
-        r"\s*(?:→|->|➜|—|-)"
-        r"\s*"
-        r"(?:.*?)(TP|SL)\b",
+    for line in lines:
 
-        re.IGNORECASE
+        line = line.strip()
 
-    )
+        if not line:
 
-    for match in pattern.finditer(text):
+            continue
 
-        hour = match.group(1)
+        # -------------------------------------------------
+        # JAM
+        # -------------------------------------------------
 
-        result = match.group(2).upper()
-
-        results.append(
-            (
-                hour,
-                result
-            )
+        time_match = re.search(
+            r"(\d{1,2}:\d{2})",
+            line
         )
+
+        if not time_match:
+
+            continue
+
+        signal_time = time_match.group(1)
+
+        # -------------------------------------------------
+        # NO SIGNAL
+        # -------------------------------------------------
+
+        if re.search(
+            r"\bNO\s*SIGNAL\b",
+            line,
+            re.IGNORECASE
+        ):
+
+            results.append({
+
+                "time":
+                    signal_time,
+
+                "status":
+                    "NO SIGNAL",
+
+                "entry":
+                    None,
+
+                "target":
+                    None
+
+            })
+
+            continue
+
+        # -------------------------------------------------
+        # PENDING
+        # -------------------------------------------------
+
+        if re.search(
+            r"\bPENDING\b",
+            line,
+            re.IGNORECASE
+        ):
+
+            # Coba ambil entry jika ada
+            entry_match = re.search(
+
+                r"(?:ENTRY|Entry)"
+                r"\s*[:=]?\s*"
+                r"(\d+(?:\.\d+)?)",
+
+                line,
+                re.IGNORECASE
+
+            )
+
+            entry = (
+
+                float(
+                    entry_match.group(1)
+                )
+
+                if entry_match
+
+                else None
+
+            )
+
+            results.append({
+
+                "time":
+                    signal_time,
+
+                "status":
+                    "PENDING",
+
+                "entry":
+                    entry,
+
+                "target":
+                    None
+
+            })
+
+            continue
+
+        # -------------------------------------------------
+        # ENTRY
+        # -------------------------------------------------
+
+        entry_match = re.search(
+
+            r"(?:ENTRY|Entry)"
+            r"\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            line,
+
+            re.IGNORECASE
+
+        )
+
+        entry = (
+
+            float(
+                entry_match.group(1)
+            )
+
+            if entry_match
+
+            else None
+
+        )
+
+        # -------------------------------------------------
+        # TP1
+        # -------------------------------------------------
+
+        tp1_match = re.search(
+
+            r"(?:TP1|TP\s*1)"
+            r"\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            line,
+
+            re.IGNORECASE
+
+        )
+
+        if tp1_match:
+
+            results.append({
+
+                "time":
+                    signal_time,
+
+                "status":
+                    "TP1",
+
+                "entry":
+                    entry,
+
+                "target":
+                    float(
+                        tp1_match.group(1)
+                    )
+
+            })
+
+            continue
+
+        # -------------------------------------------------
+        # TP2
+        # -------------------------------------------------
+
+        tp2_match = re.search(
+
+            r"(?:TP2|TP\s*2)"
+            r"\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            line,
+
+            re.IGNORECASE
+
+        )
+
+        if tp2_match:
+
+            results.append({
+
+                "time":
+                    signal_time,
+
+                "status":
+                    "TP2",
+
+                "entry":
+                    entry,
+
+                "target":
+                    float(
+                        tp2_match.group(1)
+                    )
+
+            })
+
+            continue
+
+        # -------------------------------------------------
+        # SL
+        # -------------------------------------------------
+
+        sl_match = re.search(
+
+            r"\bSL\b"
+            r"\s*[:=]?\s*"
+            r"(\d+(?:\.\d+)?)",
+
+            line,
+
+            re.IGNORECASE
+
+        )
+
+        if sl_match:
+
+            results.append({
+
+                "time":
+                    signal_time,
+
+                "status":
+                    "SL",
+
+                "entry":
+                    entry,
+
+                "target":
+                    float(
+                        sl_match.group(1)
+                    )
+
+            })
+
+            continue
 
     return results
 
 
 # =========================================================
-# CALCULATE PNL
+# CALCULATE PIPS
 # =========================================================
 
-def calculate_pnl(
-    wins: int,
-    losses: int
+def calculate_pips(
+    entry,
+    target,
+    status
 ):
     """
-    Default:
-    TP = +1R
-    SL = -1R
+    Menghitung jarak Entry -> target.
+
+    XAUUSD:
+    1 pip = 0.01
+
+    Contoh:
+
+    Entry 4637
+    TP 4647
+
+    Jarak = 10.00
+    Pips = 1000
+
+    PNL lot 0.01 = +$10.00
+
+    Untuk SELL/BUY kita gunakan jarak absolut.
     """
 
-    return wins - losses
+    if entry is None or target is None:
+
+        return 0.0
+
+    distance = abs(
+        target - entry
+    )
+
+    pips = distance / PIP_SIZE
+
+    # TP = positif
+    if status in (
+        "TP1",
+        "TP2"
+    ):
+
+        return pips
+
+    # SL = negatif
+    if status == "SL":
+
+        return -pips
+
+    return 0.0
 
 
 # =========================================================
-# PERFORMANCE MESSAGE
+# CALCULATE PNL USD
+# =========================================================
+
+def calculate_pnl_usd(
+    pips: float
+):
+    """
+    Untuk XAUUSD lot 0.01:
+
+    100 pips = $1?
+
+    Catatan:
+    Kita mengikuti definisi user:
+    100 pips = $10 untuk lot 0.01.
+
+    Jadi:
+    $10 / 100 pips
+    = $0.10 per pip.
+    """
+
+    return pips * 0.10
+
+
+# =========================================================
+# FORMAT PRICE
+# =========================================================
+
+def format_price(
+    price
+):
+
+    if price is None:
+
+        return "-"
+
+    return f"{price:.2f}"
+
+
+# =========================================================
+# FORMAT PIPS
+# =========================================================
+
+def format_pips(
+    pips
+):
+
+    if pips > 0:
+
+        return f"+{pips:.0f}"
+
+    if pips < 0:
+
+        return f"{pips:.0f}"
+
+    return "0"
+
+
+# =========================================================
+# FORMAT USD
+# =========================================================
+
+def format_usd(
+    amount
+):
+
+    if amount > 0:
+
+        return f"+${amount:.2f}"
+
+    if amount < 0:
+
+        return f"-${abs(amount):.2f}"
+
+    return "$0.00"
+
+
+# =========================================================
+# BUILD PERFORMANCE MESSAGE
 # =========================================================
 
 def build_performance_message(
-    performance
+    performance,
+    original_text
 ):
 
     total = len(
@@ -1130,94 +1635,276 @@ def build_performance_message(
     )
 
     wins = sum(
+
         1
-        for _, result
-        in performance
-        if result == "TP"
+
+        for item in performance
+
+        if item["status"] in (
+            "TP1",
+            "TP2"
+        )
+
     )
 
     losses = sum(
+
         1
-        for _, result
-        in performance
-        if result == "SL"
+
+        for item in performance
+
+        if item["status"] == "SL"
+
     )
 
-    if total:
+    pending = sum(
+
+        1
+
+        for item in performance
+
+        if item["status"] == "PENDING"
+
+    )
+
+    no_signal = sum(
+
+        1
+
+        for item in performance
+
+        if item["status"] == "NO SIGNAL"
+
+    )
+
+    closed_signals = (
+        wins
+        +
+        losses
+    )
+
+    if closed_signals:
 
         winrate = (
-            wins / total
+            wins
+            /
+            closed_signals
         ) * 100
 
     else:
 
         winrate = 0
 
-    pnl = calculate_pnl(
-        wins,
-        losses
+    total_pips = 0.0
+    total_pnl = 0.0
+
+    date_value = parse_date_from_text(
+        original_text
     )
 
-    today = datetime.now()
+    # -----------------------------------------------------
+    # TANGGAL INDONESIA
+    # -----------------------------------------------------
 
-    date_text = today.strftime(
-        "%d %B %Y"
-    )
-
-    # Bahasa Indonesia bulan
     months = {
-        "January": "Januari",
-        "February": "Februari",
-        "March": "Maret",
-        "April": "April",
-        "May": "Mei",
-        "June": "Juni",
-        "July": "Juli",
-        "August": "Agustus",
-        "September": "September",
-        "October": "Oktober",
-        "November": "November",
-        "December": "Desember"
+
+        1: "Januari",
+        2: "Februari",
+        3: "Maret",
+        4: "April",
+        5: "Mei",
+        6: "Juni",
+        7: "Juli",
+        8: "Agustus",
+        9: "September",
+        10: "Oktober",
+        11: "November",
+        12: "Desember"
+
     }
 
-    for en, idn in months.items():
+    weekdays = {
 
-        date_text = date_text.replace(
-            en,
-            idn
-        )
+        0: "Senin",
+        1: "Selasa",
+        2: "Rabu",
+        3: "Kamis",
+        4: "Jumat",
+        5: "Sabtu",
+        6: "Minggu"
+
+    }
+
+    date_text = (
+        f"{weekdays[date_value.weekday()]}, "
+        f"{date_value.day} "
+        f"{months[date_value.month]} "
+        f"{date_value.year}"
+    )
+
+    # -----------------------------------------------------
+    # BUILD SIGNAL LINES
+    # -----------------------------------------------------
 
     lines = []
 
-    for hour, result in performance:
+    for item in performance:
 
-        if result == "TP":
+        signal_time = item["time"]
 
-            icon = "✅"
+        status = item["status"]
 
-        else:
+        entry = item["entry"]
 
-            icon = "❌"
+        target = item["target"]
 
-        lines.append(
-            f"🕐 {hour} → {icon} {result}"
-        )
+        # ---------------------------------------------
+        # TP1
+        # ---------------------------------------------
+
+        if status == "TP1":
+
+            pips = calculate_pips(
+                entry,
+                target,
+                status
+            )
+
+            pnl = calculate_pnl_usd(
+                pips
+            )
+
+            total_pips += pips
+            total_pnl += pnl
+
+            lines.append(
+
+                f"🕐 <b>{signal_time}</b> → "
+                f"Entry <code>{format_price(entry)}</code>\n"
+                f"🎯 TP1 <code>{format_price(target)}</code> "
+                f"→ ✅ <b>HIT</b> "
+                f"({format_pips(pips)} Pips / "
+                f"{format_usd(pnl)})"
+
+            )
+
+        # ---------------------------------------------
+        # TP2
+        # ---------------------------------------------
+
+        elif status == "TP2":
+
+            pips = calculate_pips(
+                entry,
+                target,
+                status
+            )
+
+            pnl = calculate_pnl_usd(
+                pips
+            )
+
+            total_pips += pips
+            total_pnl += pnl
+
+            lines.append(
+
+                f"🕐 <b>{signal_time}</b> → "
+                f"Entry <code>{format_price(entry)}</code>\n"
+                f"🎯 TP2 <code>{format_price(target)}</code> "
+                f"→ ✅ <b>HIT</b> "
+                f"({format_pips(pips)} Pips / "
+                f"{format_usd(pnl)})"
+
+            )
+
+        # ---------------------------------------------
+        # SL
+        # ---------------------------------------------
+
+        elif status == "SL":
+
+            pips = calculate_pips(
+                entry,
+                target,
+                status
+            )
+
+            pnl = calculate_pnl_usd(
+                pips
+            )
+
+            total_pips += pips
+            total_pnl += pnl
+
+            lines.append(
+
+                f"🕐 <b>{signal_time}</b> → "
+                f"Entry <code>{format_price(entry)}</code>\n"
+                f"🛑 SL <code>{format_price(target)}</code> "
+                f"→ ❌ <b>HIT</b> "
+                f"({format_pips(pips)} Pips / "
+                f"{format_usd(pnl)})"
+
+            )
+
+        # ---------------------------------------------
+        # PENDING
+        # ---------------------------------------------
+
+        elif status == "PENDING":
+
+            if entry is not None:
+
+                lines.append(
+
+                    f"🕐 <b>{signal_time}</b> → "
+                    f"⏳ <b>PENDING</b>\n"
+                    f"📌 Entry <code>{format_price(entry)}</code>"
+
+                )
+
+            else:
+
+                lines.append(
+
+                    f"🕐 <b>{signal_time}</b> → "
+                    f"⏳ <b>PENDING</b>"
+
+                )
+
+        # ---------------------------------------------
+        # NO SIGNAL
+        # ---------------------------------------------
+
+        elif status == "NO SIGNAL":
+
+            lines.append(
+
+                f"🕐 <b>{signal_time}</b> → "
+                f"⚪ <b>NO SIGNAL</b>"
+
+            )
 
     performance_lines = "\n".join(
         lines
     )
 
-    if pnl > 0:
+    # -----------------------------------------------------
+    # PNL TEXT
+    # -----------------------------------------------------
 
-        pnl_text = f"+{pnl}R"
+    pnl_text = format_usd(
+        total_pnl
+    )
 
-    elif pnl < 0:
+    pips_text = format_pips(
+        total_pips
+    )
 
-        pnl_text = f"{pnl}R"
-
-    else:
-
-        pnl_text = "0R"
+    # -----------------------------------------------------
+    # FINAL MESSAGE
+    # -----------------------------------------------------
 
     return f"""
 📊 <b>XAU AI ASSISTANT GOLD</b>
@@ -1235,9 +1922,15 @@ def build_performance_message(
 📊 Total Signal : <b>{total}</b>
 ✅ Win          : <b>{wins}</b>
 ❌ Loss         : <b>{losses}</b>
+⏳ Pending      : <b>{pending}</b>
+⚪ No Signal    : <b>{no_signal}</b>
+
 🎯 Winrate      : <b>{winrate:.0f}%</b>
 
+📏 Total Pips   : <b>{pips_text} Pips</b>
 💰 PNL          : <b>{pnl_text}</b>
+
+📦 Lot          : <b>0.01</b>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1247,7 +1940,7 @@ Dapatkan akses AI Assistant Gold
 untuk membantu membaca market
 XAUUSD secara lebih terstruktur.
 
-👉 Hubungi <b>@Intradayxauusd_bot</b>
+👉 <b>@Intradayxauusd_bot</b>
 """
 
 
@@ -1263,7 +1956,6 @@ async def performance_to_channel(
 ):
 
     # Jangan proses command
-    # seperti /start dan /sent
     if message.text.startswith("/"):
 
         return
@@ -1281,7 +1973,7 @@ async def performance_to_channel(
         text
     )
 
-    # Tidak ada data TP / SL
+    # Tidak ada data performance
     if not performance:
 
         return
@@ -1292,14 +1984,14 @@ async def performance_to_channel(
         len(performance)
     )
 
-    # =====================================================
-    # KIRIM KE PUBLIC CHANNEL
-    # =====================================================
-
     try:
 
         final_message = build_performance_message(
-            performance
+
+            performance,
+
+            text
+
         )
 
         await bot.send_message(
@@ -1313,20 +2005,44 @@ async def performance_to_channel(
         )
 
         logger.info(
-            "Performance berhasil dikirim ke Public Channel | "
+
+            "Performance berhasil dikirim | "
             "signals=%s | channel=%s",
+
             len(performance),
+
             PUBLIC_CHANNEL_ID
+
         )
 
-        # Konfirmasi ke admin
+        # ---------------------------------------------
+        # KONFIRMASI ADMIN
+        # ---------------------------------------------
+
+        closed = sum(
+
+            1
+
+            for item in performance
+
+            if item["status"] in (
+                "TP1",
+                "TP2",
+                "SL"
+            )
+
+        )
+
         await message.answer(
 
             f"""
 ✅ <b>PERFORMANCE TERKIRIM</b>
 
-📊 Signal : <b>{len(performance)}</b>
-📢 Channel : <code>{PUBLIC_CHANNEL_ID}</code>
+📊 Total : <b>{len(performance)}</b>
+📈 Closed : <b>{closed}</b>
+
+📢 Channel:
+<code>{PUBLIC_CHANNEL_ID}</code>
 
 Performance berhasil diposting
 ke Channel Umum.
@@ -1387,6 +2103,11 @@ async def main():
     logger.info(
         "👨‍💼 Admin IDs: %s",
         ADMIN_IDS
+    )
+
+    logger.info(
+        "📦 Performance Lot: %.2f",
+        LOT_SIZE
     )
 
     await dp.start_polling(
