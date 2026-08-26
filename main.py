@@ -1,4 +1,6 @@
 import asyncio
+import re
+import logging
 
 from datetime import datetime, timedelta
 
@@ -14,6 +16,8 @@ from aiogram.types import (
     InlineKeyboardButton
 )
 
+from aiogram.exceptions import TelegramBadRequest
+
 
 from config import (
     BOT_TOKEN,
@@ -23,10 +27,26 @@ from config import (
     ADMIN_IDS
 )
 
-
 from packages import PACKAGE_MAP
 
 from spreadsheet import save_member
+
+
+# =========================================================
+# LOGGING
+# =========================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=(
+        "%(asctime)s "
+        "[%(levelname)s] "
+        "%(name)s: "
+        "%(message)s"
+    )
+)
+
+logger = logging.getLogger("main")
 
 
 # =========================================================
@@ -37,8 +57,15 @@ bot = Bot(
     token=BOT_TOKEN
 )
 
-
 dp = Dispatcher()
+
+
+# =========================================================
+# PERFORMANCE SETTINGS
+# =========================================================
+
+TP_PIPS = 70
+SL_PIPS = 50
 
 
 # =========================================================
@@ -51,38 +78,516 @@ user_proofs = {}
 
 
 # =========================================================
-# PERFORMANCE CONFIG
+# SAFE REMOVE KEYBOARD
 # =========================================================
 
-# PNL yang digunakan untuk laporan.
-#
-# Silakan ubah sesuai sistem kamu.
-#
-# Contoh:
-# TP = +70 pips
-# SL = -50 pips
+async def safe_remove_keyboard(
+    message: Message
+):
 
-TP_PNL = 70
-SL_PNL = -50
+    try:
+
+        await message.edit_reply_markup(
+            reply_markup=None
+        )
+
+    except TelegramBadRequest as e:
+
+        error_text = str(e).lower()
+
+        if (
+            "message is not modified"
+            in error_text
+        ):
+            return
+
+        raise
+
+    except Exception:
+
+        logger.exception(
+            "Gagal menghapus keyboard."
+        )
 
 
 # =========================================================
-# CTA PERFORMANCE
+# CALLBACK ANSWER SAFE
 # =========================================================
 
-PERFORMANCE_CTA = (
-    "🤖 <b>AKTIFKAN AI ASSISTANT GOLD</b>\n\n"
-    "Ingin mendapatkan analisa Gold "
-    "langsung dari AI Assistant?\n\n"
-    "👉 Hubungi <b>@Intradayxauusd_bot</b>"
+async def safe_callback_answer(
+    callback: CallbackQuery,
+    text=""
+):
+
+    try:
+
+        await callback.answer(
+            text
+        )
+
+    except TelegramBadRequest:
+
+        # Callback sudah expired /
+        # sudah dijawab Telegram.
+        pass
+
+    except Exception:
+
+        logger.exception(
+            "Gagal menjawab callback."
+        )
+
+
+# =========================================================
+# PERFORMANCE PARSER
+# =========================================================
+
+def parse_performance(
+    text: str
+):
+
+    """
+    Format:
+
+    07 TP
+    08 SL
+    09 TP
+
+    atau:
+
+    07:00 TP
+    08:00 SL
+
+    atau:
+
+    🕐 07:00 → ✅ TP
+    """
+
+    lines = text.strip().splitlines()
+
+    results = []
+
+    for line in lines:
+
+        line = line.strip()
+
+        if not line:
+            continue
+
+        # -------------------------------------------------
+        # NORMALIZE
+        # -------------------------------------------------
+
+        clean = line.upper()
+
+        clean = clean.replace(
+            "🕐",
+            ""
+        )
+
+        clean = clean.replace(
+            "→",
+            " "
+        )
+
+        clean = clean.replace(
+            "✅",
+            ""
+        )
+
+        clean = clean.replace(
+            "❌",
+            ""
+        )
+
+        clean = clean.strip()
+
+        # -------------------------------------------------
+        # MATCH JAM
+        # -------------------------------------------------
+
+        match = re.search(
+            r"\b(\d{1,2})(?::00)?\s+(TP|SL)\b",
+            clean
+        )
+
+        if not match:
+            continue
+
+        hour = int(
+            match.group(1)
+        )
+
+        result = match.group(2)
+
+        if hour < 0 or hour > 23:
+            continue
+
+        results.append(
+            {
+                "hour": hour,
+                "result": result
+            }
+        )
+
+    # -----------------------------------------------------
+    # SORT BERDASARKAN URUTAN INPUT
+    # -----------------------------------------------------
+
+    return results
+
+
+# =========================================================
+# BUILD PERFORMANCE
+# =========================================================
+
+def build_performance_message(
+    results
+):
+
+    total = len(results)
+
+    wins = sum(
+        1
+        for item in results
+        if item["result"] == "TP"
+    )
+
+    losses = sum(
+        1
+        for item in results
+        if item["result"] == "SL"
+    )
+
+    # -----------------------------------------------------
+    # WINRATE
+    # -----------------------------------------------------
+
+    if total > 0:
+
+        winrate = (
+            wins
+            / total
+            * 100
+        )
+
+    else:
+
+        winrate = 0
+
+    # -----------------------------------------------------
+    # P/L
+    # -----------------------------------------------------
+
+    profit_pips = (
+        wins
+        * TP_PIPS
+    )
+
+    loss_pips = (
+        losses
+        * SL_PIPS
+    )
+
+    net_pips = (
+        profit_pips
+        - loss_pips
+    )
+
+    # -----------------------------------------------------
+    # TANGGAL
+    # -----------------------------------------------------
+
+    now = datetime.now()
+
+    day_name = [
+        "Senin",
+        "Selasa",
+        "Rabu",
+        "Kamis",
+        "Jumat",
+        "Sabtu",
+        "Minggu"
+    ][now.weekday()]
+
+    date_text = now.strftime(
+        "%d %B %Y"
+    )
+
+    # -----------------------------------------------------
+    # BULAN INDONESIA
+    # -----------------------------------------------------
+
+    months = {
+        "January": "Januari",
+        "February": "Februari",
+        "March": "Maret",
+        "April": "April",
+        "May": "Mei",
+        "June": "Juni",
+        "July": "Juli",
+        "August": "Agustus",
+        "September": "September",
+        "October": "Oktober",
+        "November": "November",
+        "December": "Desember"
+    }
+
+    for english, indonesia in months.items():
+
+        date_text = date_text.replace(
+            english,
+            indonesia
+        )
+
+    # -----------------------------------------------------
+    # SIGNAL ROWS
+    # -----------------------------------------------------
+
+    rows = []
+
+    for item in results:
+
+        hour = item["hour"]
+
+        result = item["result"]
+
+        time_text = (
+            f"{hour:02d}:00"
+        )
+
+        if result == "TP":
+
+            icon = "✅"
+
+        else:
+
+            icon = "❌"
+
+        rows.append(
+            f"🕐 {time_text} → {icon} {result}"
+        )
+
+    signal_text = "\n".join(
+        rows
+    )
+
+    # -----------------------------------------------------
+    # NET FORMAT
+    # -----------------------------------------------------
+
+    if net_pips >= 0:
+
+        net_text = (
+            f"+{net_pips} Pips"
+        )
+
+        net_icon = "🟢"
+
+    else:
+
+        net_text = (
+            f"{net_pips} Pips"
+        )
+
+        net_icon = "🔴"
+
+    # -----------------------------------------------------
+    # FINAL MESSAGE
+    # -----------------------------------------------------
+
+    message = f"""
+📊 <b>XAU AI ASSISTANT</b>
+━━━━━━━━━━━━━━━━━━
+📅 <b>PERFORMANCE — {day_name}, {date_text}</b>
+
+<b>{total} SIGNAL PERFORMANCE</b>
+
+{signal_text}
+
+━━━━━━━━━━━━━━━━━━
+📈 <b>PERFORMANCE</b>
+
+✅ WIN  : {wins}
+❌ LOSS : {losses}
+🎯 WINRATE : <b>{winrate:.0f}%</b>
+
+💰 <b>P/L</b>
+🟢 TP : +{profit_pips} Pips
+🔴 SL : -{loss_pips} Pips
+{net_icon} NET : <b>{net_text}</b>
+
+━━━━━━━━━━━━━━━━━━
+🤖 <b>AKTIFKAN AI ASSISTANT GOLD</b>
+
+Dapatkan analisa Gold langsung
+dari AI Assistant.
+
+👉 <b>Hubungi @Intradayxauusd_bot</b>
+
+━━━━━━━━━━━━━━━━━━
+"""
+
+    return message
+
+
+# =========================================================
+# PERFORMANCE ADMIN HANDLER
+# =========================================================
+
+@dp.message(
+    F.text
 )
+async def performance_handler(
+    message: Message
+):
+
+    # =====================================================
+    # HANYA ADMIN
+    # =====================================================
+
+    if message.from_user.id not in ADMIN_IDS:
+
+        return
+
+    text = (
+        message.text
+        or ""
+    ).strip()
+
+    # =====================================================
+    # JANGAN PROSES COMMAND
+    # =====================================================
+
+    if text.startswith("/"):
+
+        return
+
+    # =====================================================
+    # PARSE
+    # =====================================================
+
+    results = parse_performance(
+        text
+    )
+
+    # =====================================================
+    # BUKAN PERFORMANCE
+    # =====================================================
+
+    if not results:
+
+        return
+
+    # =====================================================
+    # BATASI 20 SIGNAL
+    # =====================================================
+
+    if len(results) != 20:
+
+        await message.answer(
+            f"""
+⚠️ <b>PERFORMANCE BELUM VALID</b>
+
+Bot menemukan:
+
+<b>{len(results)} signal</b>
+
+Format performance harus berisi
+tepat <b>20 signal</b> dari:
+
+🕐 07:00
+sampai
+🕐 02:00
+
+Contoh:
+
+<code>07 TP
+08 SL
+09 TP
+10 TP</code>
+
+Silakan kirim ulang.
+""",
+            parse_mode="HTML"
+        )
+
+        return
+
+    # =====================================================
+    # BUILD
+    # =====================================================
+
+    performance_text = build_performance_message(
+        results
+    )
+
+    # =====================================================
+    # SEND TO PUBLIC CHANNEL
+    # =====================================================
+
+    try:
+
+        await bot.send_message(
+
+            chat_id=PUBLIC_CHANNEL_ID,
+
+            text=performance_text,
+
+            parse_mode="HTML"
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            "Gagal mengirim performance ke Channel."
+        )
+
+        await message.answer(
+
+            f"""
+❌ <b>GAGAL MENGIRIM PERFORMANCE</b>
+
+Pastikan:
+
+✅ Bot sudah menjadi Admin Channel
+✅ Bot memiliki izin mengirim pesan
+✅ PUBLIC_CHANNEL_ID benar
+
+Error:
+
+<code>{e}</code>
+""",
+
+            parse_mode="HTML"
+        )
+
+        return
+
+    # =====================================================
+    # SUCCESS
+    # =====================================================
+
+    await message.answer(
+        """
+✅ <b>PERFORMANCE BERHASIL DIKIRIM</b>
+
+Performance 20 signal sudah
+diterbitkan ke Channel Umum.
+
+📊 Winrate dan P/L dihitung otomatis.
+""",
+        parse_mode="HTML"
+    )
 
 
 # =========================================================
 # START WELCOME
 # =========================================================
 
-@dp.message(CommandStart())
+@dp.message(
+    CommandStart()
+)
 async def start(
     message: Message
 ):
@@ -104,11 +609,9 @@ async def start(
 
     )
 
-
     photo = FSInputFile(
         "assets/ai_example.jpg"
     )
-
 
     text = f"""
 🤖 <b>XAU AI ASSISTANT PREMIUM</b>
@@ -118,20 +621,16 @@ async def start(
 Selamat datang di layanan
 <b>XAU AI Assistant Premium</b>.
 
-<blockquote>
-"Partner AI pribadi untuk membantu Anda
-membaca market Gold lebih cepat,
-lebih terstruktur, dan tanpa noise."
-</blockquote>
+<blockquote>"Partner AI pribadi untuk membantu Anda membaca market Gold lebih cepat, lebih terstruktur, dan tanpa noise."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
 🚀 <b>FITUR PREMIUM</b>
 
-📈 <b>Analisa XAUUSD Premium</b>
-🧠 <b>Smart Money Concept Analysis</b>
-⚡ <b>Update Market Gold Terbaru</b>
-🤖 <b>AI Assistant Telegram Pribadi</b>
+📈 Analisa XAUUSD Premium
+🧠 Smart Money Concept Analysis
+⚡ Update Market Gold Terbaru
+🤖 AI Assistant Telegram Pribadi
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -158,7 +657,6 @@ dan profesional.
 Klik tombol di bawah untuk memulai.
 """
 
-
     await message.answer_photo(
 
         photo=photo,
@@ -168,7 +666,6 @@ Klik tombol di bawah untuk memulai.
         reply_markup=keyboard,
 
         parse_mode="HTML"
-
     )
 
 
@@ -183,63 +680,49 @@ async def choose_package(
     callback: CallbackQuery
 ):
 
-    await callback.message.edit_reply_markup(
-        reply_markup=None
+    await safe_remove_keyboard(
+        callback.message
     )
-
 
     keyboard = InlineKeyboardMarkup(
 
         inline_keyboard=[
 
             [
-
                 InlineKeyboardButton(
                     text="🥇 STARTER • 1 Bulan | Rp250.000",
                     callback_data="pkg_1month"
                 )
-
             ],
 
             [
-
                 InlineKeyboardButton(
                     text="🥈 PRO • 6 Bulan | Rp500.000",
                     callback_data="pkg_6month"
                 )
-
             ],
 
             [
-
                 InlineKeyboardButton(
                     text="🥉 ELITE • 12 Bulan | Rp850.000",
                     callback_data="pkg_12month"
                 )
-
             ],
 
             [
-
                 InlineKeyboardButton(
                     text="👑 LIFETIME ACCESS | Rp1.500.000",
                     callback_data="pkg_permanent"
                 )
-
             ]
 
         ]
-
     )
-
 
     text = """
 💎 <b>PILIH MEMBERSHIP PLAN</b>
 
-<blockquote>
-"Pilih paket akses yang sesuai kebutuhan
-trading Anda."
-</blockquote>
+<blockquote>"Pilih paket akses yang sesuai kebutuhan trading Anda."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -267,7 +750,7 @@ trading Anda."
 
 ━━━━━━━━━━━━━━━━━━
 
-✨ <b>Semua paket mendapatkan:</b>
+✨ Semua paket mendapatkan:
 
 ✅ AI Assistant Telegram
 ✅ Analisa XAUUSD
@@ -276,7 +759,6 @@ trading Anda."
 Silakan pilih paket untuk melanjutkan.
 """
 
-
     await callback.message.answer(
 
         text,
@@ -284,11 +766,10 @@ Silakan pilih paket untuk melanjutkan.
         reply_markup=keyboard,
 
         parse_mode="HTML"
-
     )
 
-
-    await callback.answer(
+    await safe_callback_answer(
+        callback,
         "Silakan pilih paket membership"
     )
 
@@ -304,34 +785,27 @@ async def show_payment(
     callback: CallbackQuery
 ):
 
-    await callback.message.edit_reply_markup(
-        reply_markup=None
+    await safe_remove_keyboard(
+        callback.message
     )
-
 
     package_key = callback.data.replace(
         "pkg_",
         ""
     )
 
-
     user_packages[
         callback.from_user.id
     ] = package_key
-
 
     data = PACKAGE_MAP[
         package_key
     ]
 
-
     payment_text = f"""
 💳 <b>AKTIVASI MEMBERSHIP</b>
 
-<blockquote>
-"Selangkah lagi menuju akses
-AI Assistant Premium Anda."
-</blockquote>
+<blockquote>"Selangkah lagi menuju akses AI Assistant Premium Anda."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -343,7 +817,7 @@ Rp {data['price']:,}
 
 ━━━━━━━━━━━━━━━━━━
 
-📌 <b>Instruksi Pembayaran</b>
+📌 <b>INSTRUKSI PEMBAYARAN</b>
 
 1️⃣ Scan QRIS di atas
 2️⃣ Lakukan pembayaran
@@ -361,7 +835,6 @@ Terima kasih telah bergabung
 bersama <b>XAU AI Assistant</b>.
 """
 
-
     await callback.message.answer_photo(
 
         photo=FSInputFile(
@@ -371,11 +844,10 @@ bersama <b>XAU AI Assistant</b>.
         caption=payment_text,
 
         parse_mode="HTML"
-
     )
 
-
-    await callback.answer(
+    await safe_callback_answer(
+        callback,
         "Paket berhasil dipilih"
     )
 
@@ -391,34 +863,31 @@ async def upload_request(
     callback: CallbackQuery
 ):
 
-    text = """
+    await callback.message.answer(
+
+        """
 📸 <b>UPLOAD BUKTI PEMBAYARAN</b>
 
-<blockquote>
-"Pastikan bukti pembayaran terlihat jelas
-agar proses aktivasi dapat berjalan cepat."
-</blockquote>
+<blockquote>"Pastikan bukti pembayaran terlihat jelas agar proses aktivasi dapat berjalan cepat."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
 Silakan kirim:
 
 ✅ Screenshot pembayaran
+atau
 ✅ Foto bukti transfer QRIS
 
 Admin akan melakukan pengecekan
 setelah bukti diterima.
-"""
+""",
 
-
-    await callback.message.answer(
-        text,
         parse_mode="HTML"
     )
 
-
-    await callback.answer(
-        "Silakan upload bukti pembayaran"
+    await safe_callback_answer(
+        callback,
+        "Silakan upload bukti pembayaran ke sini"
     )
 
 
@@ -437,7 +906,6 @@ async def receive_payment(
         message.from_user.id
     ] = message.photo[-1].file_id
 
-
     keyboard = InlineKeyboardMarkup(
 
         inline_keyboard=[
@@ -455,14 +923,12 @@ async def receive_payment(
 
     )
 
+    await message.answer(
 
-    text = """
+        """
 ✅ <b>BUKTI PEMBAYARAN DITERIMA</b>
 
-<blockquote>
-"Data pembayaran Anda sudah siap
-untuk dikirim ke Admin."
-</blockquote>
+<blockquote>"Data pembayaran Anda sudah siap untuk dikirim ke Admin."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -472,17 +938,11 @@ Status:
 
 Klik tombol berikut untuk mengirim
 permintaan pengecekan.
-"""
-
-
-    await message.answer(
-
-        text,
+""",
 
         reply_markup=keyboard,
 
         parse_mode="HTML"
-
     )
 
 
@@ -499,36 +959,30 @@ async def verify(
 
     user_id = callback.from_user.id
 
-
     package_key = user_packages.get(
         user_id
     )
-
 
     proof = user_proofs.get(
         user_id
     )
 
-
     if not package_key or not proof:
 
-        await callback.answer(
-            "⚠️ Data belum lengkap",
-            show_alert=True
+        await safe_callback_answer(
+            callback,
+            "⚠️ Data belum lengkap"
         )
 
         return
 
-
-    await callback.message.edit_reply_markup(
-        reply_markup=None
+    await safe_remove_keyboard(
+        callback.message
     )
-
 
     data = PACKAGE_MAP[
         package_key
     ]
-
 
     admin_keyboard = InlineKeyboardMarkup(
 
@@ -552,7 +1006,6 @@ async def verify(
 
     )
 
-
     username = (
 
         f"@{callback.from_user.username}"
@@ -560,17 +1013,12 @@ async def verify(
         if callback.from_user.username
 
         else "-"
-
     )
-
 
     admin_text = f"""
 📥 <b>PAYMENT VERIFICATION</b>
 
-<blockquote>
-"Member baru menunggu pengecekan
-aktivasi membership."
-</blockquote>
+<blockquote>"Member baru menunggu pengecekan aktivasi membership."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -596,7 +1044,6 @@ Rp {data['price']:,}
 ⚡ Silakan lakukan verifikasi.
 """
 
-
     await bot.send_photo(
 
         chat_id=PAYMENT_GROUP_ID,
@@ -608,19 +1055,14 @@ Rp {data['price']:,}
         reply_markup=admin_keyboard,
 
         parse_mode="HTML"
-
     )
-
 
     await callback.message.answer(
 
         """
 ⏳ <b>VERIFIKASI BERHASIL DIKIRIM</b>
 
-<blockquote>
-"Admin sedang melakukan pengecekan
-pembayaran Anda."
-</blockquote>
+<blockquote>"Admin sedang melakukan pengecekan pembayaran Anda."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -633,11 +1075,10 @@ setelah membership aktif.
 """,
 
         parse_mode="HTML"
-
     )
 
-
-    await callback.answer(
+    await safe_callback_answer(
+        callback,
         "Dikirim ke Admin"
     )
 
@@ -653,50 +1094,34 @@ async def approve(
     callback: CallbackQuery
 ):
 
-    if callback.from_user.id not in ADMIN_IDS:
-
-        await callback.answer(
-            "❌ Anda bukan admin.",
-            show_alert=True
-        )
-
-        return
-
-
-    await callback.message.edit_reply_markup(
-        reply_markup=None
+    await safe_remove_keyboard(
+        callback.message
     )
-
 
     user_id = int(
         callback.data.split("_")[1]
     )
 
-
     user = await bot.get_chat(
         user_id
     )
-
 
     package_key = user_packages.get(
         user_id
     )
 
-
     if not package_key:
 
-        await callback.answer(
-            "Data paket tidak ditemukan",
-            show_alert=True
+        await safe_callback_answer(
+            callback,
+            "Data paket tidak ditemukan"
         )
 
         return
 
-
     data = PACKAGE_MAP[
         package_key
     ]
-
 
     if data["days"] == 9999:
 
@@ -705,22 +1130,17 @@ async def approve(
     else:
 
         expired = (
-
             datetime.now()
-
             + timedelta(
                 days=data["days"]
             )
-
         ).strftime(
             "%d-%m-%Y"
         )
 
-
     save_member({
 
-        "telegram_id":
-            user_id,
+        "telegram_id": user_id,
 
         "username":
             user.username or "",
@@ -744,9 +1164,7 @@ async def approve(
 
         "status":
             "ACTIVE"
-
     })
-
 
     button = InlineKeyboardMarkup(
 
@@ -762,17 +1180,12 @@ async def approve(
             ]
 
         ]
-
     )
-
 
     member_text = f"""
 🎉 <b>MEMBERSHIP AKTIF</b>
 
-<blockquote>
-"Selamat! Anda sekarang resmi menjadi
-bagian dari XAU AI Assistant Premium."
-</blockquote>
+<blockquote>"Selamat! Anda sekarang resmi menjadi bagian dari XAU AI Assistant Premium."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -784,7 +1197,7 @@ bagian dari XAU AI Assistant Premium."
 
 ━━━━━━━━━━━━━━━━━━
 
-🚀 <b>Akses Premium Anda</b>
+🚀 <b>Akses Premium Anda:</b>
 
 ✅ AI Assistant Telegram
 ✅ Analisa XAUUSD
@@ -800,7 +1213,6 @@ Selamat trading bersama
 <b>XAU AI Assistant</b> 🤖
 """
 
-
     await bot.send_message(
 
         chat_id=user_id,
@@ -810,9 +1222,7 @@ Selamat trading bersama
         reply_markup=button,
 
         parse_mode="HTML"
-
     )
-
 
     await callback.message.answer(
 
@@ -824,11 +1234,10 @@ dan user sudah menerima akses.
 """,
 
         parse_mode="HTML"
-
     )
 
-
-    await callback.answer(
+    await safe_callback_answer(
+        callback,
         "Member aktif"
     )
 
@@ -844,33 +1253,18 @@ async def reject(
     callback: CallbackQuery
 ):
 
-    if callback.from_user.id not in ADMIN_IDS:
-
-        await callback.answer(
-            "❌ Anda bukan admin.",
-            show_alert=True
-        )
-
-        return
-
-
-    await callback.message.edit_reply_markup(
-        reply_markup=None
+    await safe_remove_keyboard(
+        callback.message
     )
-
 
     user_id = int(
         callback.data.split("_")[1]
     )
 
-
     reject_text = """
 ❌ <b>PEMBAYARAN BELUM DIVERIFIKASI</b>
 
-<blockquote>
-"Terjadi kendala saat melakukan
-pengecekan pembayaran Anda."
-</blockquote>
+<blockquote>"Terjadi kendala saat melakukan pengecekan pembayaran Anda."</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -884,7 +1278,6 @@ Admin siap membantu proses
 aktivasi Anda.
 """
 
-
     await bot.send_message(
 
         chat_id=user_id,
@@ -892,9 +1285,7 @@ aktivasi Anda.
         text=reject_text,
 
         parse_mode="HTML"
-
     )
-
 
     await callback.message.answer(
 
@@ -907,538 +1298,11 @@ diverifikasi.
 """,
 
         parse_mode="HTML"
-
     )
 
-
-    await callback.answer(
+    await safe_callback_answer(
+        callback,
         "Payment rejected"
-    )
-
-
-# =========================================================
-# PERFORMANCE HELPER
-# =========================================================
-
-def parse_performance(
-    text: str
-):
-
-    """
-    Membaca baris:
-
-    🕐 07:00 → ✅ TP
-    🕐 08:00 → ❌ SL
-
-    Return:
-
-    [
-        ("07:00", "TP"),
-        ("08:00", "SL")
-    ]
-    """
-
-    results = []
-
-
-    lines = text.splitlines()
-
-
-    for line in lines:
-
-        line = line.strip()
-
-
-        if not line:
-
-            continue
-
-
-        upper = line.upper()
-
-
-        # -------------------------------------------------
-        # HANYA PROSES BARIS YANG MEMILIKI JAM
-        # -------------------------------------------------
-
-        if "🕐" not in line:
-
-            continue
-
-
-        # -------------------------------------------------
-        # AMBIL JAM
-        # -------------------------------------------------
-
-        try:
-
-            time_part = (
-                line
-                .split("🕐", 1)[1]
-                .strip()
-                .split("→", 1)[0]
-                .strip()
-            )
-
-        except Exception:
-
-            continue
-
-
-        # -------------------------------------------------
-        # VALIDASI JAM
-        # -------------------------------------------------
-
-        try:
-
-            datetime.strptime(
-                time_part,
-                "%H:%M"
-            )
-
-        except ValueError:
-
-            continue
-
-
-        # -------------------------------------------------
-        # HASIL
-        # -------------------------------------------------
-
-        if "TP" in upper:
-
-            result = "TP"
-
-        elif "SL" in upper:
-
-            result = "SL"
-
-        else:
-
-            continue
-
-
-        results.append(
-            (
-                time_part,
-                result
-            )
-        )
-
-
-    return results
-
-
-# =========================================================
-# BUILD PERFORMANCE
-# =========================================================
-
-def build_performance_message(
-    original_text: str
-):
-
-    trades = parse_performance(
-        original_text
-    )
-
-
-    # =====================================================
-    # JIKA TIDAK ADA SIGNAL
-    # =====================================================
-
-    if not trades:
-
-        return None
-
-
-    # =====================================================
-    # DATE
-    # =====================================================
-
-    now = datetime.now()
-
-
-    day_names = {
-
-        0: "Senin",
-        1: "Selasa",
-        2: "Rabu",
-        3: "Kamis",
-        4: "Jumat",
-        5: "Sabtu",
-        6: "Minggu"
-
-    }
-
-
-    month_names = {
-
-        1: "Januari",
-        2: "Februari",
-        3: "Maret",
-        4: "April",
-        5: "Mei",
-        6: "Juni",
-        7: "Juli",
-        8: "Agustus",
-        9: "September",
-        10: "Oktober",
-        11: "November",
-        12: "Desember"
-
-    }
-
-
-    day_name = day_names[
-        now.weekday()
-    ]
-
-
-    month_name = month_names[
-        now.month
-    ]
-
-
-    date_text = (
-        f"{day_name}, "
-        f"{now.day} "
-        f"{month_name} "
-        f"{now.year}"
-    )
-
-
-    # =====================================================
-    # STATISTIC
-    # =====================================================
-
-    total = len(
-        trades
-    )
-
-
-    wins = sum(
-        1
-        for _, result in trades
-        if result == "TP"
-    )
-
-
-    losses = sum(
-        1
-        for _, result in trades
-        if result == "SL"
-    )
-
-
-    winrate = (
-
-        (wins / total) * 100
-
-        if total > 0
-
-        else 0
-
-    )
-
-
-    # =====================================================
-    # PNL
-    # =====================================================
-
-    pnl_plus = (
-        wins * TP_PNL
-    )
-
-
-    pnl_minus = (
-        losses * abs(SL_PNL)
-    )
-
-
-    net_pnl = (
-        pnl_plus
-        - pnl_minus
-    )
-
-
-    # =====================================================
-    # PERFORMANCE ROW
-    # =====================================================
-
-    rows = []
-
-
-    for signal_time, result in trades:
-
-        if result == "TP":
-
-            icon = "✅"
-
-        else:
-
-            icon = "❌"
-
-
-        rows.append(
-
-            f"🕐 <b>{signal_time}</b> "
-            f"→ {icon} {result}"
-
-        )
-
-
-    performance_rows = "\n".join(
-        rows
-    )
-
-
-    # =====================================================
-    # NET ICON
-    # =====================================================
-
-    if net_pnl > 0:
-
-        net_icon = "📈"
-
-    elif net_pnl < 0:
-
-        net_icon = "📉"
-
-    else:
-
-        net_icon = "➖"
-
-
-    # =====================================================
-    # FINAL MESSAGE
-    # =====================================================
-
-    message = f"""
-📊 <b>XAU AI ASSISTANT</b>
-━━━━━━━━━━━━━━━━━━
-<b>PERFORMANCE {total} SIGNAL</b>
-
-📅 <b>{date_text}</b>
-
-{performance_rows}
-
-━━━━━━━━━━━━━━━━━━
-
-📊 <b>HASIL PERFORMANCE</b>
-
-🎯 Total Signal : <b>{total}</b>
-✅ Win          : <b>{wins}</b>
-❌ Loss         : <b>{losses}</b>
-📈 Winrate      : <b>{winrate:.1f}%</b>
-
-━━━━━━━━━━━━━━━━━━
-
-💰 <b>PNL PERFORMANCE</b>
-
-🟢 PNL Plus     : <b>+{pnl_plus}</b>
-🔴 PNL Minus    : <b>-{pnl_minus}</b>
-{net_icon} Net PNL       : <b>{net_pnl:+}</b>
-
-━━━━━━━━━━━━━━━━━━
-
-{PERFORMANCE_CTA}
-"""
-
-
-    return message
-
-
-# =========================================================
-# PERFORMANCE ADMIN
-# =========================================================
-
-@dp.message(
-    F.text
-)
-async def admin_performance(
-    message: Message
-):
-
-    # =====================================================
-    # HARUS ADMIN
-    # =====================================================
-
-    if not message.from_user:
-
-        return
-
-
-    if message.from_user.id not in ADMIN_IDS:
-
-        return
-
-
-    # =====================================================
-    # HARUS PRIVATE CHAT
-    # =====================================================
-
-    if message.chat.type != "private":
-
-        return
-
-
-    text = (
-        message.text
-        or ""
-    ).strip()
-
-
-    # =====================================================
-    # DETEKSI PERFORMANCE
-    # =====================================================
-
-    upper_text = text.upper()
-
-
-    if (
-        "PERFORMANCE 20 SIGNAL"
-        not in upper_text
-        and
-        "PERFORMANCE"
-        not in upper_text
-    ):
-
-        return
-
-
-    # =====================================================
-    # PARSE
-    # =====================================================
-
-    performance = build_performance_message(
-        text
-    )
-
-
-    if not performance:
-
-        await message.answer(
-
-            """
-⚠️ <b>FORMAT PERFORMANCE TIDAK TERBACA</b>
-
-Pastikan format seperti:
-
-<code>🕐 07:00 → ✅ TP
-🕐 08:00 → ❌ SL</code>
-
-Lalu kirim kembali.
-""",
-
-            parse_mode="HTML"
-
-        )
-
-        return
-
-
-    # =====================================================
-    # CEK CHANNEL
-    # =====================================================
-
-    if not PUBLIC_CHANNEL_ID:
-
-        await message.answer(
-
-            """
-❌ <b>PUBLIC_CHANNEL_ID BELUM DIATUR</b>
-
-Tambahkan:
-
-<code>PUBLIC_CHANNEL_ID=-100xxxxxxxxxx</code>
-
-ke file .env
-""",
-
-            parse_mode="HTML"
-
-        )
-
-        return
-
-
-    # =====================================================
-    # KIRIM CHANNEL
-    # =====================================================
-
-    try:
-
-        await bot.send_message(
-
-            chat_id=PUBLIC_CHANNEL_ID,
-
-            text=performance,
-
-            parse_mode="HTML",
-
-            disable_web_page_preview=True
-
-        )
-
-
-    except Exception as e:
-
-        await message.answer(
-
-            "❌ <b>GAGAL MENGIRIM PERFORMANCE</b>\n\n"
-            f"<code>{str(e)}</code>",
-
-            parse_mode="HTML"
-
-        )
-
-        return
-
-
-    # =====================================================
-    # KONFIRMASI ADMIN
-    # =====================================================
-
-    trades = parse_performance(
-        text
-    )
-
-
-    total = len(
-        trades
-    )
-
-
-    wins = sum(
-        1
-        for _, result in trades
-        if result == "TP"
-    )
-
-
-    losses = sum(
-        1
-        for _, result in trades
-        if result == "SL"
-    )
-
-
-    await message.answer(
-
-        f"""
-✅ <b>PERFORMANCE BERHASIL DIPUBLISH</b>
-
-━━━━━━━━━━━━━━━━━━
-
-📊 Signal : <b>{total}</b>
-✅ TP     : <b>{wins}</b>
-❌ SL     : <b>{losses}</b>
-
-📢 Sudah dikirim ke Channel Umum.
-""",
-
-        parse_mode="HTML"
-
     )
 
 
@@ -1448,10 +1312,18 @@ ke file .env
 
 async def main():
 
-    print(
+    logger.info(
         "🤖 XAU AI Assistant Bot Running..."
     )
 
+    logger.info(
+        "📊 Performance → Channel aktif"
+    )
+
+    logger.info(
+        "📢 Public Channel ID: %s",
+        PUBLIC_CHANNEL_ID
+    )
 
     await dp.start_polling(
         bot
@@ -1464,6 +1336,14 @@ async def main():
 
 if __name__ == "__main__":
 
-    asyncio.run(
-        main()
-    )
+    try:
+
+        asyncio.run(
+            main()
+        )
+
+    except KeyboardInterrupt:
+
+        logger.info(
+            "Bot dihentikan manual."
+        )
