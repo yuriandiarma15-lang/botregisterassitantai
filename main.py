@@ -566,26 +566,43 @@ def parse_performance(
 # =========================================================
 
 def get_result_pips(
-    result
+    direction,
+    entry,
+    hit_price
 ):
 
-    result = str(
-        result
-    ).upper().strip()
+    try:
 
-    if result == "TP1":
+        direction = str(
+            direction
+        ).upper().strip()
 
-        return TP1_PIPS
+        entry = float(entry)
+        hit_price = float(hit_price)
 
-    if result == "TP2":
+        # XAUUSD:
+        # 1.00 price movement = 10 pips
+        #
+        # BUY  : profit when hit_price > entry
+        # SELL : profit when hit_price < entry
 
-        return TP2_PIPS
+        if direction == "B":
 
-    if result == "SL":
+            return round(
+                (hit_price - entry) * 10
+            )
 
-        return -SL_PIPS
+        if direction == "S":
 
-    return 0
+            return round(
+                (entry - hit_price) * 10
+            )
+
+        return 0
+
+    except Exception:
+
+        return 0
 
 
 # =========================================================
@@ -593,11 +610,15 @@ def get_result_pips(
 # =========================================================
 
 def get_result_pnl(
-    result
+    direction,
+    entry,
+    hit_price
 ):
 
     pips = get_result_pips(
-        result
+        direction,
+        entry,
+        hit_price
     )
 
     return (
@@ -721,7 +742,9 @@ def build_performance_message(
     total_pips = sum(
 
         get_result_pips(
-            item["result"]
+            item["direction"],
+            item["entry"],
+            item["hit_price"]
         )
 
         for item in signals
@@ -735,7 +758,9 @@ def build_performance_message(
     pnl = sum(
 
         get_result_pnl(
-            item["result"]
+            item["direction"],
+            item["entry"],
+            item["hit_price"]
         )
 
         for item in signals
