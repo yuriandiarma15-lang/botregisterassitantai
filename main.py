@@ -124,7 +124,7 @@ def get_package_data(
     )
 
     if (
-        package_key == "pkg_1month"
+        package_key == "1month"
         and is_promo_1month_active()
     ):
 
