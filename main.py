@@ -86,52 +86,21 @@ TP2_PIPS = 150
 SL_PIPS = 50
 
 
-# =========================================================
-# PROMO 1 BULAN
-#
-# Berlaku 1 - 5 September 2026.
-# Setelah tanggal ini, harga & label OTOMATIS balik ke
-# normal tanpa perlu edit manual / deploy ulang.
-# =========================================================
-
-PROMO_1MONTH_END = datetime(2026, 9, 5, 23, 59, 59)
-PROMO_1MONTH_PRICE = 99000
-PROMO_1MONTH_LABEL = "🥇 STARTER • 1 Bulan (PROMO)"
-
-
-def is_promo_1month_active() -> bool:
-
-    return datetime.now() <= PROMO_1MONTH_END
-
-
 def get_package_data(
     package_key: str
 ) -> dict:
     """
-    Ambil data paket dari PACKAGE_MAP, tapi kalau ini
-    paket 1 bulan dan promo masih aktif, override
-    harga & label-nya di sini.
+    Ambil data paket dari PACKAGE_MAP.
 
     SEMUA tempat yang butuh harga/label paket WAJIB
     lewat fungsi ini, bukan akses PACKAGE_MAP langsung,
     supaya harga selalu konsisten di semua pesan
-    (keyboard, QRIS, admin, spreadsheet) dan promo
-    otomatis expired sendiri.
+    (keyboard, QRIS, admin, spreadsheet).
     """
 
-    data = dict(
+    return dict(
         PACKAGE_MAP[package_key]
     )
-
-    if (
-        package_key == "1month"
-        and is_promo_1month_active()
-    ):
-
-        data["price"] = PROMO_1MONTH_PRICE
-        data["label"] = PROMO_1MONTH_LABEL
-
-    return data
 
 
 # =========================================================
@@ -1077,36 +1046,6 @@ async def choose_package(
         callback.message
     )
 
-    # =====================================================
-    # PROMO 1 BULAN — DINAMIS
-    # =====================================================
-
-    if is_promo_1month_active():
-
-        starter_button_text = (
-            "🥇 STARTER • 1 Bulan | "
-            "Rp99.000 (Promo)"
-        )
-
-        starter_promo_block = f"""
-🔥 <b>PROMO TERBATAS!</b>
-🥇 <b>STARTER — 1 Bulan</b>
-<s>Rp250.000</s> ➜ <b>Rp99.000</b>
-⏳ Berlaku sampai <b>{format_date_indonesia(PROMO_1MONTH_END)}</b>
-"""
-
-    else:
-
-        starter_button_text = (
-            "🥇 STARTER • 1 Bulan | Rp250.000"
-        )
-
-        starter_promo_block = """
-🥇 <b>STARTER</b>
-📅 1 Bulan
-💰 Rp250.000
-"""
-
     keyboard = InlineKeyboardMarkup(
 
         inline_keyboard=[
@@ -1115,7 +1054,7 @@ async def choose_package(
 
                 InlineKeyboardButton(
 
-                    text=starter_button_text,
+                    text="🥇 STARTER • 1 Bulan | Rp299.000",
 
                     callback_data="pkg_1month"
 
@@ -1151,7 +1090,7 @@ async def choose_package(
 
                 InlineKeyboardButton(
 
-                    text="👑 LIFETIME | Rp1.500.000",
+                    text="👑 3 TAHUN | Rp1.500.000",
 
                     callback_data="pkg_permanent"
 
@@ -1163,7 +1102,7 @@ async def choose_package(
 
     )
 
-    text = f"""
+    text = """
 💎 <b>PILIH MEMBERSHIP PLAN</b>
 
 <blockquote>
@@ -1172,7 +1111,11 @@ dengan kebutuhan trading Anda."
 </blockquote>
 
 ━━━━━━━━━━━━━━━━━━
-{starter_promo_block}
+
+🥇 <b>STARTER</b>
+📅 1 Bulan
+💰 Rp299.000
+
 🥈 <b>PRO</b>
 📅 6 Bulan
 💰 Rp500.000
@@ -1181,8 +1124,8 @@ dengan kebutuhan trading Anda."
 📅 12 Bulan
 💰 Rp850.000
 
-👑 <b>LIFETIME</b>
-♾️ Permanent
+👑 <b>3 TAHUN</b>
+📅 3 Tahun
 💰 Rp1.500.000
 
 ━━━━━━━━━━━━━━━━━━
@@ -2234,12 +2177,6 @@ async def main():
         TP1_PIPS,
         TP2_PIPS,
         SL_PIPS
-    )
-
-    logger.info(
-        "🔥 Promo 1 Bulan aktif sampai: %s (Rp%s)",
-        PROMO_1MONTH_END.strftime("%d-%m-%Y %H:%M"),
-        format_rupiah(PROMO_1MONTH_PRICE)
     )
 
     await dp.start_polling(
