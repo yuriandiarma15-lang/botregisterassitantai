@@ -8,7 +8,7 @@ PACKAGE_MAP = {
 
         "label": "1 Bulan",
 
-        "price": 250000,
+        "price": 299000,
 
         "days": 30
 
@@ -39,11 +39,11 @@ PACKAGE_MAP = {
 
     "permanent": {
 
-        "label": "Permanent",
+        "label": "3 tahun",
 
         "price": 1500000,
 
-        "days": 9999
+        "days": 1095
 
     }
 
