@@ -95,7 +95,7 @@ def get_package_data(
     SEMUA tempat yang butuh harga/label paket WAJIB
     lewat fungsi ini, bukan akses PACKAGE_MAP langsung,
     supaya harga selalu konsisten di semua pesan
-    (keyboard, QRIS, admin, spreadsheet).
+    (keyboard, QRIS, admin, spreadsheet, DAN WEBSITE).
     """
 
     return dict(
@@ -923,7 +923,208 @@ secara realtime dan terstruktur.</b>
 
 
 # =========================================================
+# KEYBOARD PILIH PAKET (dipakai di /start biasa)
+# =========================================================
+
+def build_package_keyboard() -> InlineKeyboardMarkup:
+
+    return InlineKeyboardMarkup(
+
+        inline_keyboard=[
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="🥇 STARTER • 1 Bulan | Rp299.000",
+
+                    callback_data="pkg_1month"
+
+                )
+
+            ],
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="🥈 PRO • 6 Bulan | Rp500.000",
+
+                    callback_data="pkg_6month"
+
+                )
+
+            ],
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="🥉 ELITE • 12 Bulan | Rp850.000",
+
+                    callback_data="pkg_12month"
+
+                )
+
+            ],
+
+            [
+
+                InlineKeyboardButton(
+
+                    text="👑 3 TAHUN | Rp1.500.000",
+
+                    callback_data="pkg_permanent"
+
+                )
+
+            ]
+
+        ]
+
+    )
+
+
+PACKAGE_CHOICE_TEXT = """
+💎 <b>PILIH MEMBERSHIP PLAN</b>
+
+<blockquote>
+"Pilih paket akses yang sesuai
+dengan kebutuhan trading Anda."
+</blockquote>
+
+━━━━━━━━━━━━━━━━━━
+
+🥇 <b>STARTER</b>
+📅 1 Bulan
+💰 Rp299.000
+
+🥈 <b>PRO</b>
+📅 6 Bulan
+💰 Rp500.000
+
+🥉 <b>ELITE</b>
+📅 12 Bulan
+💰 Rp850.000
+
+👑 <b>3 TAHUN</b>
+📅 3 Tahun
+💰 Rp1.500.000
+
+━━━━━━━━━━━━━━━━━━
+
+✨ <b>Semua paket mendapatkan:</b>
+
+✅ AI Assistant Telegram
+✅ Analisa XAUUSD
+✅ Smart Money Analysis
+
+Silakan pilih paket untuk melanjutkan.
+"""
+
+
+# =========================================================
+# KIRIM QRIS UNTUK PAKET TERTENTU
+#
+# Fungsi ini adalah SATU-SATUNYA tempat yang mengirim
+# pesan QRIS/pembayaran, dipakai baik dari:
+# - tombol pilih paket manual (callback pkg_xxx)
+# - deep-link dari website (/start <package_key>)
+#
+# supaya harga & isi pesan SELALU konsisten.
+# =========================================================
+
+async def send_payment_info(
+    user_id: int,
+    chat_id: int,
+    package_key: str
+) -> bool:
+
+    if package_key not in PACKAGE_MAP:
+
+        logger.warning(
+            "Package key tidak dikenali: %s",
+            package_key
+        )
+
+        return False
+
+    user_packages[
+        user_id
+    ] = package_key
+
+    data = get_package_data(
+        package_key
+    )
+
+    payment_text = f"""
+💳 <b>AKTIVASI MEMBERSHIP</b>
+
+<blockquote>
+"Selangkah lagi menuju akses
+AI Assistant Gold Anda."
+</blockquote>
+
+━━━━━━━━━━━━━━━━━━
+
+📦 <b>Paket</b>
+{data['label']}
+
+💰 <b>Total</b>
+Rp {format_rupiah(data['price'])}
+
+━━━━━━━━━━━━━━━━━━
+
+📌 <b>INSTRUKSI PEMBAYARAN</b>
+
+1️⃣ Scan QRIS
+2️⃣ Lakukan pembayaran
+3️⃣ Kirim bukti pembayaran ke chat ini
+
+📸 Screenshot pembayaran
+harus terlihat jelas.
+
+━━━━━━━━━━━━━━━━━━
+
+⏳ Admin akan melakukan
+verifikasi pembayaran Anda.
+
+Terima kasih telah bergabung
+bersama <b>XAU AI Assistant Gold</b>.
+"""
+
+    await bot.send_photo(
+
+        chat_id=chat_id,
+
+        photo=FSInputFile(
+            "assets/qris.jpg"
+        ),
+
+        caption=payment_text,
+
+        parse_mode="HTML"
+
+    )
+
+    return True
+
+
+# =========================================================
 # START
+#
+# Mendukung 2 mode:
+#
+# 1) /start biasa (dari tombol "start" di Telegram)
+#    -> tampilkan welcome + tombol "AKTIFKAN AI ASSISTANT"
+#
+# 2) /start <package_key> (deep-link dari website, contoh:
+#    https://t.me/Intradayxauusd_bot?start=1month)
+#    -> user diarahkan LANGSUNG ke QRIS paket tsb,
+#       tanpa perlu klik pilih paket lagi.
+#
+#    package_key HARUS SAMA PERSIS dengan key di PACKAGE_MAP
+#    (mis. "1month", "6month", "12month", "permanent")
 # =========================================================
 
 @dp.message(
@@ -934,10 +1135,51 @@ async def start(
 ):
 
     logger.info(
-        "START diterima | user_id=%s | username=%s",
+        "START diterima | user_id=%s | username=%s | text=%s",
         message.from_user.id,
-        message.from_user.username
+        message.from_user.username,
+        message.text
     )
+
+    # =====================================================
+    # CEK DEEP-LINK PAYLOAD
+    # =====================================================
+
+    payload = None
+
+    if message.text and " " in message.text:
+
+        payload = message.text.split(
+            maxsplit=1
+        )[1].strip()
+
+    if payload and payload in PACKAGE_MAP:
+
+        logger.info(
+            "Deep-link paket dari website | user_id=%s | package=%s",
+            message.from_user.id,
+            payload
+        )
+
+        sent = await send_payment_info(
+
+            user_id=message.from_user.id,
+
+            chat_id=message.chat.id,
+
+            package_key=payload
+
+        )
+
+        if sent:
+
+            return
+
+        # kalau gagal (key tidak valid), lanjut ke flow normal di bawah
+
+    # =====================================================
+    # FLOW NORMAL (tanpa payload / payload tidak dikenali)
+    # =====================================================
 
     keyboard = InlineKeyboardMarkup(
 
@@ -1046,104 +1288,11 @@ async def choose_package(
         callback.message
     )
 
-    keyboard = InlineKeyboardMarkup(
-
-        inline_keyboard=[
-
-            [
-
-                InlineKeyboardButton(
-
-                    text="🥇 STARTER • 1 Bulan | Rp299.000",
-
-                    callback_data="pkg_1month"
-
-                )
-
-            ],
-
-            [
-
-                InlineKeyboardButton(
-
-                    text="🥈 PRO • 6 Bulan | Rp500.000",
-
-                    callback_data="pkg_6month"
-
-                )
-
-            ],
-
-            [
-
-                InlineKeyboardButton(
-
-                    text="🥉 ELITE • 12 Bulan | Rp850.000",
-
-                    callback_data="pkg_12month"
-
-                )
-
-            ],
-
-            [
-
-                InlineKeyboardButton(
-
-                    text="👑 3 TAHUN | Rp1.500.000",
-
-                    callback_data="pkg_permanent"
-
-                )
-
-            ]
-
-        ]
-
-    )
-
-    text = """
-💎 <b>PILIH MEMBERSHIP PLAN</b>
-
-<blockquote>
-"Pilih paket akses yang sesuai
-dengan kebutuhan trading Anda."
-</blockquote>
-
-━━━━━━━━━━━━━━━━━━
-
-🥇 <b>STARTER</b>
-📅 1 Bulan
-💰 Rp299.000
-
-🥈 <b>PRO</b>
-📅 6 Bulan
-💰 Rp500.000
-
-🥉 <b>ELITE</b>
-📅 12 Bulan
-💰 Rp850.000
-
-👑 <b>3 TAHUN</b>
-📅 3 Tahun
-💰 Rp1.500.000
-
-━━━━━━━━━━━━━━━━━━
-
-✨ <b>Semua paket mendapatkan:</b>
-
-✅ AI Assistant Telegram
-✅ Analisa XAUUSD
-✅ Smart Money Analysis
-
-Silakan pilih paket untuk melanjutkan.
-"""
-
     await callback.message.answer(
 
-        text,
+        PACKAGE_CHOICE_TEXT,
 
-        reply_markup=keyboard,
+        reply_markup=build_package_keyboard(),
 
         parse_mode="HTML"
 
@@ -1159,7 +1308,7 @@ Silakan pilih paket untuk melanjutkan.
 
 
 # =========================================================
-# QRIS PAYMENT
+# QRIS PAYMENT (dari tombol pilih paket manual)
 # =========================================================
 
 @dp.callback_query(
@@ -1178,7 +1327,17 @@ async def show_payment(
         ""
     )
 
-    if package_key not in PACKAGE_MAP:
+    sent = await send_payment_info(
+
+        user_id=callback.from_user.id,
+
+        chat_id=callback.message.chat.id,
+
+        package_key=package_key
+
+    )
+
+    if not sent:
 
         await safe_callback_answer(
 
@@ -1191,62 +1350,6 @@ async def show_payment(
         )
 
         return
-
-    user_packages[
-        callback.from_user.id
-    ] = package_key
-
-    data = get_package_data(
-        package_key
-    )
-
-    payment_text = f"""
-💳 <b>AKTIVASI MEMBERSHIP</b>
-
-<blockquote>
-"Selangkah lagi menuju akses
-AI Assistant Gold Anda."
-</blockquote>
-
-━━━━━━━━━━━━━━━━━━
-
-📦 <b>Paket</b>
-{data['label']}
-
-💰 <b>Total</b>
-Rp {format_rupiah(data['price'])}
-
-━━━━━━━━━━━━━━━━━━
-
-📌 <b>INSTRUKSI PEMBAYARAN</b>
-
-1️⃣ Scan QRIS
-2️⃣ Lakukan pembayaran
-3️⃣ Kirim bukti pembayaran ke chat ini
-
-📸 Screenshot pembayaran
-harus terlihat jelas.
-
-━━━━━━━━━━━━━━━━━━
-
-⏳ Admin akan melakukan
-verifikasi pembayaran Anda.
-
-Terima kasih telah bergabung
-bersama <b>XAU AI Assistant Gold</b>.
-"""
-
-    await callback.message.answer_photo(
-
-        photo=FSInputFile(
-            "assets/qris.jpg"
-        ),
-
-        caption=payment_text,
-
-        parse_mode="HTML"
-
-    )
 
     await safe_callback_answer(
 
