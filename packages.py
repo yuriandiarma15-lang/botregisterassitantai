@@ -12,7 +12,7 @@ PACKAGE_MAP = {
     },
     "12month": {
         "label": "12 Bulan",
-        "price": 850000,
+        "price": 900000,
         "days": 365
     },
     "permanent": {
