@@ -24,7 +24,7 @@ from config import (
     ADMIN_IDS
 )
 
-from packages import PACKAGE_MAP
+from packages import PACKAGE_MAP, get_active_price
 from spreadsheet import save_member
 
 
@@ -96,11 +96,23 @@ def get_package_data(
     lewat fungsi ini, bukan akses PACKAGE_MAP langsung,
     supaya harga selalu konsisten di semua pesan
     (keyboard, QRIS, admin, spreadsheet, DAN WEBSITE).
+
+    "price" dihitung lewat get_active_price() supaya paket
+    "permanent" otomatis memakai harga promo (Rp999.000)
+    selama masih berlaku, dan otomatis kembali ke harga
+    normal (Rp1.500.000) setelah promo berakhir — tanpa
+    perlu ubah kode manual tiap kali promo selesai.
     """
 
-    return dict(
+    data = dict(
         PACKAGE_MAP[package_key]
     )
+
+    data["price"] = get_active_price(
+        package_key
+    )
+
+    return data
 
 
 # =========================================================
@@ -924,9 +936,18 @@ secara realtime dan terstruktur.</b>
 
 # =========================================================
 # KEYBOARD PILIH PAKET (dipakai di /start biasa)
+#
+# Label harga untuk paket "permanent" diambil lewat
+# get_active_price() supaya otomatis menampilkan harga
+# promo (Rp999.000) selama masih berlaku, dan otomatis
+# kembali ke Rp1.500.000 setelah promo berakhir.
 # =========================================================
 
 def build_package_keyboard() -> InlineKeyboardMarkup:
+
+    harga_3tahun = format_rupiah(
+        get_active_price("permanent")
+    )
 
     return InlineKeyboardMarkup(
 
@@ -972,7 +993,7 @@ def build_package_keyboard() -> InlineKeyboardMarkup:
 
                 InlineKeyboardButton(
 
-                    text="👑 3 TAHUN | Rp1.500.000",
+                    text=f"👑 3 TAHUN | Rp{harga_3tahun}",
 
                     callback_data="pkg_permanent"
 
@@ -985,7 +1006,18 @@ def build_package_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-PACKAGE_CHOICE_TEXT = """
+def build_package_choice_text() -> str:
+    """
+    Bangun teks daftar paket. Dipisah jadi fungsi (bukan
+    string statis) supaya harga paket "permanent" selalu
+    ikut harga aktif (promo/normal) dari get_active_price().
+    """
+
+    harga_3tahun = format_rupiah(
+        get_active_price("permanent")
+    )
+
+    return f"""
 💎 <b>PILIH MEMBERSHIP PLAN</b>
 
 <blockquote>
@@ -1009,7 +1041,7 @@ dengan kebutuhan trading Anda."
 
 👑 <b>3 TAHUN</b>
 📅 3 Tahun
-💰 Rp1.500.000
+💰 Rp{harga_3tahun}
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1290,7 +1322,7 @@ async def choose_package(
 
     await callback.message.answer(
 
-        PACKAGE_CHOICE_TEXT,
+        build_package_choice_text(),
 
         reply_markup=build_package_keyboard(),
 
