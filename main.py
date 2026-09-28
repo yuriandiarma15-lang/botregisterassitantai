@@ -1492,11 +1492,6 @@ Gmail: budi@gmail.com</code>
 
 Silakan <b>kirim format tersebut kembali ke sini</b>.
 
-Data ini akan dikirim kepada Admin
-bersamaan dengan bukti pembayaran
-untuk proses verifikasi.
-
-🔒 Data Broker dan Gmail <b>tidak disimpan ke Google Sheets</b>.
 """
 
     await message.answer(
