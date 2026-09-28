@@ -57,6 +57,14 @@ dp = Dispatcher()
 
 
 # =========================================================
+# PRIVATE GROUP
+# =========================================================
+
+# Grup diskusi & sharing
+PRIVATE_GROUP_ID = -1003949834371
+
+
+# =========================================================
 # TEMP STORAGE
 # =========================================================
 
@@ -68,41 +76,42 @@ user_proofs = {}
 # PERFORMANCE SETTINGS
 # =========================================================
 
-# Lot untuk perhitungan performance
 PERFORMANCE_LOT = 0.01
 
-# Nilai 1 pip pada lot 0.01
-# 100 pips = $10
 DOLLAR_PER_PIP_LOT_001 = 0.10
 
 
 # =========================================================
-# FIXED PERFORMANCE RESULT
+# PERFORMANCE RESULT
 # =========================================================
 
-# Sesuai sistem trading kamu
 TP1_PIPS = 70
 TP2_PIPS = 150
 SL_PIPS = 50
 
 
+# =========================================================
+# PACKAGE ACCESS
+# =========================================================
+
+def package_has_group_access(
+    package_key: str
+) -> bool:
+
+    return package_key in (
+        "6month",
+        "12month",
+        "permanent"
+    )
+
+
+# =========================================================
+# PACKAGE DATA
+# =========================================================
+
 def get_package_data(
     package_key: str
 ) -> dict:
-    """
-    Ambil data paket dari PACKAGE_MAP.
-
-    SEMUA tempat yang butuh harga/label paket WAJIB
-    lewat fungsi ini, bukan akses PACKAGE_MAP langsung,
-    supaya harga selalu konsisten di semua pesan
-    (keyboard, QRIS, admin, spreadsheet, DAN WEBSITE).
-
-    "price" dihitung lewat get_active_price() supaya paket
-    "permanent" otomatis memakai harga promo (Rp999.000)
-    selama masih berlaku, dan otomatis kembali ke harga
-    normal (Rp1.500.000) setelah promo berakhir — tanpa
-    perlu ubah kode manual tiap kali promo selesai.
-    """
 
     data = dict(
         PACKAGE_MAP[package_key]
@@ -116,7 +125,7 @@ def get_package_data(
 
 
 # =========================================================
-# HELPER ADMIN
+# ADMIN
 # =========================================================
 
 def is_admin(user_id: int) -> bool:
@@ -134,7 +143,7 @@ def is_admin(user_id: int) -> bool:
 
 
 # =========================================================
-# SAFE CALLBACK ANSWER
+# SAFE CALLBACK
 # =========================================================
 
 async def safe_callback_answer(
@@ -160,7 +169,7 @@ async def safe_callback_answer(
 
 
 # =========================================================
-# SAFE REMOVE KEYBOARD
+# REMOVE KEYBOARD
 # =========================================================
 
 async def remove_keyboard(
@@ -342,19 +351,6 @@ def parse_performance_date(
 
 # =========================================================
 # PARSE PERFORMANCE
-#
-# FORMAT UTAMA:
-#
-# 📅 26-08-2026
-#
-# S 07:00 | 4652 | 4645 | TP1
-# B 08:00 | 4636 | 4651 | TP2
-# 09:00 | PENDING
-# 10:00 | PENDING
-# 12:00 | NO SIGNAL
-# B 13:00 | 4637 | 4632 | SL
-#
-# PENDING / NO SIGNAL TIDAK PERLU B/S
 # =========================================================
 
 def parse_performance(
@@ -372,10 +368,6 @@ def parse_performance(
         if not line:
 
             continue
-
-        # =================================================
-        # CLEAN
-        # =================================================
 
         line = line.replace(
             "📅",
@@ -407,9 +399,6 @@ def parse_performance(
 
         # =================================================
         # PENDING
-        #
-        # 09:00 | PENDING
-        # 09:00 |PENDING
         # =================================================
 
         pending_match = re.search(
@@ -486,10 +475,6 @@ def parse_performance(
 
         # =================================================
         # SIGNAL
-        #
-        # S 07:00 | 4652 | 4645 | TP1
-        # B 08:00 | 4636 | 4651 | TP2
-        # B 13:00 | 4637 | 4632 | SL
         # =================================================
 
         signal_match = re.search(
@@ -574,10 +559,6 @@ def parse_performance(
 
             continue
 
-        # =================================================
-        # UNKNOWN LINE
-        # =================================================
-
         logger.warning(
             "Performance line tidak dikenali: %s",
             line
@@ -587,11 +568,7 @@ def parse_performance(
 
 
 # =========================================================
-# GET RESULT PIPS
-#
-# TP1 = +70
-# TP2 = +150
-# SL  = -50
+# RESULT PIPS
 # =========================================================
 
 def get_result_pips(
@@ -608,12 +585,6 @@ def get_result_pips(
 
         entry = float(entry)
         hit_price = float(hit_price)
-
-        # XAUUSD:
-        # 1.00 price movement = 10 pips
-        #
-        # BUY  : profit when hit_price > entry
-        # SELL : profit when hit_price < entry
 
         if direction == "B":
 
@@ -635,7 +606,7 @@ def get_result_pips(
 
 
 # =========================================================
-# GET RESULT PNL
+# RESULT PNL
 # =========================================================
 
 def get_result_pnl(
@@ -657,17 +628,13 @@ def get_result_pnl(
 
 
 # =========================================================
-# BUILD PERFORMANCE MESSAGE
+# BUILD PERFORMANCE
 # =========================================================
 
 def build_performance_message(
     performance,
     performance_date=None
 ):
-
-    # =====================================================
-    # FILTER SIGNAL SELESAI
-    # =====================================================
 
     signals = [
 
@@ -683,17 +650,9 @@ def build_performance_message(
 
     ]
 
-    # =====================================================
-    # TOTAL SIGNAL
-    # =====================================================
-
     total = len(
         signals
     )
-
-    # =====================================================
-    # COUNT
-    # =====================================================
 
     tp1_count = sum(
 
@@ -745,10 +704,6 @@ def build_performance_message(
 
     )
 
-    # =====================================================
-    # WINRATE
-    # =====================================================
-
     wins = (
         tp1_count
         + tp2_count
@@ -764,10 +719,6 @@ def build_performance_message(
 
         winrate = 0
 
-    # =====================================================
-    # TOTAL PIPS
-    # =====================================================
-
     total_pips = sum(
 
         get_result_pips(
@@ -779,10 +730,6 @@ def build_performance_message(
         for item in signals
 
     )
-
-    # =====================================================
-    # TOTAL PNL
-    # =====================================================
 
     pnl = sum(
 
@@ -796,10 +743,6 @@ def build_performance_message(
 
     )
 
-    # =====================================================
-    # DATE
-    # =====================================================
-
     if performance_date is None:
 
         performance_date = datetime.now()
@@ -808,53 +751,31 @@ def build_performance_message(
         performance_date
     )
 
-    # =====================================================
-    # BUILD DETAIL LINES
-    # =====================================================
-
     lines = []
 
     for item in performance:
 
         direction = item["direction"]
-
         time = item["time"]
-
         result = item["result"]
-
-        # =================================================
-        # PENDING
-        # =================================================
 
         if result == "PENDING":
 
             lines.append(
-
                 f"- 🕐 {time} | "
                 f"⏳ <b>PENDING</b>"
-
             )
 
             continue
-
-        # =================================================
-        # NO SIGNAL
-        # =================================================
 
         if result == "NO SIGNAL":
 
             lines.append(
-
                 f"- 🕐 {time} | "
                 f"⚪ <b>NO SIGNAL</b>"
-
             )
 
             continue
-
-        # =================================================
-        # SIGNAL
-        # =================================================
 
         entry = format_price(
             item["entry"]
@@ -888,17 +809,9 @@ def build_performance_message(
         lines
     )
 
-    # =====================================================
-    # PNL
-    # =====================================================
-
     pnl_text = format_usd(
         pnl
     )
-
-    # =====================================================
-    # FINAL PERFORMANCE
-    # =====================================================
 
     return f"""
 📊 <b>XAU AI ASSISTANT GOLD</b>
@@ -935,12 +848,7 @@ secara realtime dan terstruktur.</b>
 
 
 # =========================================================
-# KEYBOARD PILIH PAKET (dipakai di /start biasa)
-#
-# Label harga untuk paket "permanent" diambil lewat
-# get_active_price() supaya otomatis menampilkan harga
-# promo (Rp999.000) selama masih berlaku, dan otomatis
-# kembali ke Rp1.500.000 setelah promo berakhir.
+# PACKAGE KEYBOARD
 # =========================================================
 
 def build_package_keyboard() -> InlineKeyboardMarkup:
@@ -954,51 +862,43 @@ def build_package_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
 
             [
-
                 InlineKeyboardButton(
-
-                    text="🥇 STARTER • 1 Bulan | Rp299.000",
-
+                    text=(
+                        "🥇 STARTER • 1 Bulan | "
+                        "Rp299.000"
+                    ),
                     callback_data="pkg_1month"
-
                 )
-
             ],
 
             [
-
                 InlineKeyboardButton(
-
-                    text="🥈 PRO • 6 Bulan | Rp500.000",
-
+                    text=(
+                        "🥈 PRO • 6 Bulan | "
+                        "Rp500.000"
+                    ),
                     callback_data="pkg_6month"
-
                 )
-
             ],
 
             [
-
                 InlineKeyboardButton(
-
-                    text="🥉 ELITE • 12 Bulan | Rp850.000",
-
+                    text=(
+                        "🥉 ELITE • 12 Bulan | "
+                        "Rp850.000"
+                    ),
                     callback_data="pkg_12month"
-
                 )
-
             ],
 
             [
-
                 InlineKeyboardButton(
-
-                    text=f"👑 3 TAHUN | Rp{harga_3tahun}",
-
+                    text=(
+                        f"👑 3 TAHUN | "
+                        f"Rp{harga_3tahun}"
+                    ),
                     callback_data="pkg_permanent"
-
                 )
-
             ]
 
         ]
@@ -1006,12 +906,11 @@ def build_package_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+# =========================================================
+# PACKAGE CHOICE TEXT
+# =========================================================
+
 def build_package_choice_text() -> str:
-    """
-    Bangun teks daftar paket. Dipisah jadi fungsi (bukan
-    string statis) supaya harga paket "permanent" selalu
-    ikut harga aktif (promo/normal) dari get_active_price().
-    """
 
     harga_3tahun = format_rupiah(
         get_active_price("permanent")
@@ -1020,28 +919,40 @@ def build_package_choice_text() -> str:
     return f"""
 💎 <b>PILIH MEMBERSHIP PLAN</b>
 
-<blockquote>
-"Pilih paket akses yang sesuai
-dengan kebutuhan trading Anda."
-</blockquote>
-
 ━━━━━━━━━━━━━━━━━━
 
 🥇 <b>STARTER</b>
 📅 1 Bulan
-💰 Rp299.000
+💰 <b>Rp299.000</b>
+
+🤖 AI Assistant Telegram
+
+━━━━━━━━━━━━━━━━━━
 
 🥈 <b>PRO</b>
 📅 6 Bulan
-💰 Rp500.000
+💰 <b>Rp500.000</b>
+
+🤖 AI Assistant
+👥 Grup Diskusi &amp; Sharing
+
+━━━━━━━━━━━━━━━━━━
 
 🥉 <b>ELITE</b>
 📅 12 Bulan
-💰 Rp850.000
+💰 <b>Rp850.000</b>
+
+🤖 AI Assistant
+👥 Grup Diskusi &amp; Sharing
+
+━━━━━━━━━━━━━━━━━━
 
 👑 <b>3 TAHUN</b>
 📅 3 Tahun
-💰 Rp{harga_3tahun}
+💰 <b>Rp{harga_3tahun}</b>
+
+🤖 AI Assistant
+👥 Grup Diskusi &amp; Sharing
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1051,19 +962,16 @@ dengan kebutuhan trading Anda."
 ✅ Analisa XAUUSD
 ✅ Smart Money Analysis
 
-Silakan pilih paket untuk melanjutkan.
+👥 Paket 6 Bulan, 12 Bulan &amp;
+3 Tahun mendapatkan akses
+Grup Diskusi &amp; Sharing.
+
+Silakan pilih paket.
 """
 
 
 # =========================================================
-# KIRIM QRIS UNTUK PAKET TERTENTU
-#
-# Fungsi ini adalah SATU-SATUNYA tempat yang mengirim
-# pesan QRIS/pembayaran, dipakai baik dari:
-# - tombol pilih paket manual (callback pkg_xxx)
-# - deep-link dari website (/start <package_key>)
-#
-# supaya harga & isi pesan SELALU konsisten.
+# SEND PAYMENT INFO
 # =========================================================
 
 async def send_payment_info(
@@ -1089,13 +997,20 @@ async def send_payment_info(
         package_key
     )
 
+    group_text = ""
+
+    if package_has_group_access(
+        package_key
+    ):
+
+        group_text = """
+👥 <b>Grup Diskusi &amp; Sharing</b>
+Akses grup diberikan setelah pembayaran
+disetujui Admin.
+"""
+
     payment_text = f"""
 💳 <b>AKTIVASI MEMBERSHIP</b>
-
-<blockquote>
-"Selangkah lagi menuju akses
-AI Assistant Gold Anda."
-</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1105,6 +1020,14 @@ AI Assistant Gold Anda."
 💰 <b>Total</b>
 Rp {format_rupiah(data['price'])}
 
+━━━━━━━━━━━━━━━━━━
+
+🤖 <b>AI ASSISTANT</b>
+
+Akses AI Assistant Telegram
+untuk analisa XAUUSD.
+
+{group_text}
 ━━━━━━━━━━━━━━━━━━
 
 📌 <b>INSTRUKSI PEMBAYARAN</b>
@@ -1118,8 +1041,8 @@ harus terlihat jelas.
 
 ━━━━━━━━━━━━━━━━━━
 
-⏳ Admin akan melakukan
-verifikasi pembayaran Anda.
+⏳ Setelah bukti diterima,
+Admin akan melakukan verifikasi.
 
 Terima kasih telah bergabung
 bersama <b>XAU AI Assistant Gold</b>.
@@ -1145,18 +1068,7 @@ bersama <b>XAU AI Assistant Gold</b>.
 # =========================================================
 # START
 #
-# Mendukung 2 mode:
-#
-# 1) /start biasa (dari tombol "start" di Telegram)
-#    -> tampilkan welcome + tombol "AKTIFKAN AI ASSISTANT"
-#
-# 2) /start <package_key> (deep-link dari website, contoh:
-#    https://t.me/Intradayxauusd_bot?start=1month)
-#    -> user diarahkan LANGSUNG ke QRIS paket tsb,
-#       tanpa perlu klik pilih paket lagi.
-#
-#    package_key HARUS SAMA PERSIS dengan key di PACKAGE_MAP
-#    (mis. "1month", "6month", "12month", "permanent")
+# LANGSUNG PILIH PAKET
 # =========================================================
 
 @dp.message(
@@ -1174,7 +1086,7 @@ async def start(
     )
 
     # =====================================================
-    # CEK DEEP-LINK PAYLOAD
+    # DEEP LINK
     # =====================================================
 
     payload = None
@@ -1188,7 +1100,7 @@ async def start(
     if payload and payload in PACKAGE_MAP:
 
         logger.info(
-            "Deep-link paket dari website | user_id=%s | package=%s",
+            "Deep-link paket | user_id=%s | package=%s",
             message.from_user.id,
             payload
         )
@@ -1207,120 +1119,13 @@ async def start(
 
             return
 
-        # kalau gagal (key tidak valid), lanjut ke flow normal di bawah
-
     # =====================================================
-    # FLOW NORMAL (tanpa payload / payload tidak dikenali)
+    # NORMAL START
+    #
+    # LANGSUNG PILIH HARGA
     # =====================================================
 
-    keyboard = InlineKeyboardMarkup(
-
-        inline_keyboard=[
-
-            [
-
-                InlineKeyboardButton(
-
-                    text="🤖 AKTIFKAN AI ASSISTANT",
-
-                    callback_data="activate"
-
-                )
-
-            ]
-
-        ]
-
-    )
-
-    photo = FSInputFile(
-        "assets/ai_example.jpg"
-    )
-
-    text = f"""
-🤖 <b>XAU AI ASSISTANT GOLD</b>
-
-👋 Halo <b>{message.from_user.first_name}</b>
-
-Selamat datang di layanan
-<b>XAU AI Assistant Gold</b>.
-
-<blockquote>
-"Partner AI pribadi untuk membantu Anda
-membaca market Gold lebih cepat,
-lebih terstruktur, dan tanpa noise."
-</blockquote>
-
-━━━━━━━━━━━━━━━━━━
-
-🚀 <b>FITUR PREMIUM</b>
-
-📈 <b>Analisa XAUUSD Premium</b>
-🧠 <b>Smart Money Concept</b>
-⚡ <b>Market Intelligence</b>
-🤖 <b>AI Assistant Telegram</b>
-
-━━━━━━━━━━━━━━━━━━
-
-💎 <b>KENAPA BERBEDA?</b>
-
-❌ Tidak perlu membaca ratusan chat signal
-❌ Tidak perlu mencari informasi penting
-❌ Tidak perlu takut kehilangan momentum
-❌ Tidak perlu mengikuti FOMO market
-
-Semua informasi dirangkum
-langsung oleh AI Assistant Anda.
-
-━━━━━━━━━━━━━━━━━━
-
-🔐 <b>AKTIFKAN AKSES</b>
-
-Dapatkan akses AI Assistant Gold
-untuk membantu analisa XAUUSD
-secara lebih cepat dan terstruktur.
-
-Klik tombol di bawah untuk memulai.
-"""
-
-    try:
-
-        await message.answer_photo(
-
-            photo=photo,
-
-            caption=text,
-
-            reply_markup=keyboard,
-
-            parse_mode="HTML"
-
-        )
-
-    except Exception as e:
-
-        logger.exception(
-            "Gagal mengirim START: %s",
-            e
-        )
-
-
-# =========================================================
-# PILIH PACKAGE
-# =========================================================
-
-@dp.callback_query(
-    F.data == "activate"
-)
-async def choose_package(
-    callback: CallbackQuery
-):
-
-    await remove_keyboard(
-        callback.message
-    )
-
-    await callback.message.answer(
+    await message.answer(
 
         build_package_choice_text(),
 
@@ -1330,17 +1135,9 @@ async def choose_package(
 
     )
 
-    await safe_callback_answer(
-
-        callback,
-
-        "Silakan pilih paket membership"
-
-    )
-
 
 # =========================================================
-# QRIS PAYMENT (dari tombol pilih paket manual)
+# PILIH PACKAGE
 # =========================================================
 
 @dp.callback_query(
@@ -1406,11 +1203,6 @@ async def upload_request(
     text = """
 📸 <b>UPLOAD BUKTI PEMBAYARAN</b>
 
-<blockquote>
-"Pastikan bukti pembayaran terlihat jelas
-agar proses aktivasi berjalan cepat."
-</blockquote>
-
 ━━━━━━━━━━━━━━━━━━
 
 Silakan kirim:
@@ -1418,6 +1210,8 @@ Silakan kirim:
 ✅ Screenshot pembayaran
 atau
 ✅ Foto bukti transfer QRIS
+
+Pastikan bukti pembayaran terlihat jelas.
 
 Admin akan melakukan pengecekan
 setelah bukti diterima.
@@ -1477,11 +1271,6 @@ async def receive_payment(
 
     text = """
 ✅ <b>BUKTI PEMBAYARAN DITERIMA</b>
-
-<blockquote>
-"Data pembayaran Anda sudah siap
-untuk dikirim ke Admin."
-</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1585,13 +1374,14 @@ async def verify(
 
     )
 
+    group_access = (
+        "✅ Ya"
+        if package_has_group_access(package_key)
+        else "❌ Tidak"
+    )
+
     admin_text = f"""
 📥 <b>PAYMENT VERIFICATION</b>
-
-<blockquote>
-"Member baru menunggu pengecekan
-aktivasi membership."
-</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1611,6 +1401,9 @@ aktivasi membership."
 
 💰 <b>Total</b>
 Rp {format_rupiah(data['price'])}
+
+👥 <b>Akses Grup</b>
+{group_access}
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1656,6 +1449,44 @@ setelah membership aktif.
         "Dikirim ke Admin"
 
     )
+
+
+# =========================================================
+# CREATE ONE-TIME GROUP INVITE
+# =========================================================
+
+async def create_group_invite(
+    user_id: int
+):
+
+    try:
+
+        invite = await bot.create_chat_invite_link(
+
+            chat_id=PRIVATE_GROUP_ID,
+
+            name=f"Member {user_id}",
+
+            member_limit=1
+
+        )
+
+        logger.info(
+            "Invite grup dibuat | user=%s | invite=%s",
+            user_id,
+            invite.invite_link
+        )
+
+        return invite.invite_link
+
+    except Exception as e:
+
+        logger.exception(
+            "Gagal membuat invite grup | user=%s",
+            user_id
+        )
+
+        return None
 
 
 # =========================================================
@@ -1740,6 +1571,10 @@ async def approve(
         package_key
     )
 
+    # =====================================================
+    # EXPIRED
+    # =====================================================
+
     if data["days"] == 9999:
 
         expired = "PERMANENT ACCESS"
@@ -1757,6 +1592,10 @@ async def approve(
         ).strftime(
             "%d-%m-%Y"
         )
+
+    # =====================================================
+    # SAVE MEMBER
+    # =====================================================
 
     save_member({
 
@@ -1788,33 +1627,121 @@ async def approve(
 
     })
 
-    button = InlineKeyboardMarkup(
+    # =====================================================
+    # AI BUTTON
+    # =====================================================
 
-        inline_keyboard=[
+    buttons = [
 
-            [
+        [
 
-                InlineKeyboardButton(
+            InlineKeyboardButton(
 
-                    text="🤖 MASUK AI ASSISTANT",
+                text="🤖 MASUK AI ASSISTANT",
 
-                    url=SIGNAL_BOT
+                url=SIGNAL_BOT
 
-                )
-
-            ]
+            )
 
         ]
 
+    ]
+
+    # =====================================================
+    # GROUP INVITE
+    #
+    # HANYA:
+    # 6 BULAN
+    # 12 BULAN
+    # 3 TAHUN
+    # =====================================================
+
+    invite_link = None
+
+    if package_has_group_access(
+        package_key
+    ):
+
+        invite_link = await create_group_invite(
+            user_id
+        )
+
+        if invite_link:
+
+            buttons.append(
+
+                [
+
+                    InlineKeyboardButton(
+
+                        text=(
+                            "👥 GABUNG GRUP "
+                            "DISKUSI & SHARING"
+                        ),
+
+                        url=invite_link
+
+                    )
+
+                ]
+
+            )
+
+    # =====================================================
+    # KEYBOARD
+    # =====================================================
+
+    member_keyboard = InlineKeyboardMarkup(
+
+        inline_keyboard=buttons
+
     )
+
+    # =====================================================
+    # MEMBER MESSAGE
+    # =====================================================
+
+    if package_has_group_access(
+        package_key
+    ):
+
+        if invite_link:
+
+            group_access_text = """
+👥 <b>GRUP DISKUSI &amp; SHARING</b>
+
+Anda mendapatkan akses grup private.
+Gunakan tombol di bawah untuk bergabung.
+
+⚠️ Link ini hanya dapat digunakan
+untuk <b>1 anggota</b>.
+"""
+
+        else:
+
+            group_access_text = """
+👥 <b>GRUP DISKUSI &amp; SHARING</b>
+
+Pembayaran aktif, tetapi link grup
+belum berhasil dibuat.
+
+Silakan hubungi Admin.
+"""
+
+    else:
+
+        group_access_text = """
+🤖 <b>AKSES AI ASSISTANT</b>
+
+Paket 1 Bulan mendapatkan akses
+AI Assistant Telegram.
+
+ℹ️ Paket ini tidak termasuk akses
+Grup Diskusi &amp; Sharing.
+"""
 
     member_text = f"""
 🎉 <b>MEMBERSHIP AKTIF</b>
-
-<blockquote>
-"Selamat! Anda resmi menjadi bagian
-dari XAU AI Assistant Gold."
-</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1835,32 +1762,99 @@ dari XAU AI Assistant Gold."
 
 ━━━━━━━━━━━━━━━━━━
 
-Klik tombol di bawah untuk mulai
-menggunakan AI Assistant.
+{group_access_text}
+
+Klik tombol di bawah untuk mulai.
 
 Selamat trading bersama
 <b>XAU AI Assistant Gold</b> 🤖
 """
 
-    await bot.send_message(
+    # =====================================================
+    # SEND MEMBER ACCESS
+    # =====================================================
 
-        chat_id=user_id,
+    try:
 
-        text=member_text,
+        await bot.send_message(
 
-        reply_markup=button,
+            chat_id=user_id,
 
-        parse_mode="HTML"
+            text=member_text,
 
-    )
+            reply_markup=member_keyboard,
+
+            parse_mode="HTML"
+
+        )
+
+    except Exception as e:
+
+        logger.exception(
+            "Gagal mengirim akses member: %s",
+            e
+        )
+
+        await callback.message.answer(
+
+            f"""
+⚠️ <b>MEMBERSHIP TERSIMPAN</b>
+
+Member sudah disimpan ke database,
+tetapi pesan akses gagal dikirim.
+
+User ID:
+<code>{user_id}</code>
+
+Error:
+<code>{e}</code>
+""",
+
+            parse_mode="HTML"
+
+        )
+
+        return
+
+    # =====================================================
+    # ADMIN CONFIRMATION
+    # =====================================================
+
+    if package_has_group_access(
+        package_key
+    ):
+
+        if invite_link:
+
+            admin_group_status = (
+                "✅ Invite grup berhasil dibuat"
+            )
+
+        else:
+
+            admin_group_status = (
+                "⚠️ Invite grup gagal dibuat"
+            )
+
+    else:
+
+        admin_group_status = (
+            "ℹ️ Paket 1 Bulan — tanpa akses grup"
+        )
 
     await callback.message.answer(
 
-        """
+        f"""
 ✅ <b>MEMBER BERHASIL DIAKTIFKAN</b>
 
 Data membership telah tersimpan
 dan user sudah menerima akses.
+
+📦 Paket:
+<b>{data['label']}</b>
+
+👥 Grup:
+{admin_group_status}
 """,
 
         parse_mode="HTML"
@@ -1913,11 +1907,6 @@ async def reject(
 
     reject_text = """
 ❌ <b>PEMBAYARAN BELUM DIVERIFIKASI</b>
-
-<blockquote>
-"Terjadi kendala saat melakukan
-pengecekan pembayaran Anda."
-</blockquote>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -2071,7 +2060,7 @@ async def performance_to_channel(
         return
 
     # =====================================================
-    # HANYA ADMIN
+    # ADMIN SAJA
     # =====================================================
 
     if not is_admin(
@@ -2083,7 +2072,7 @@ async def performance_to_channel(
     text = message.text.strip()
 
     # =====================================================
-    # PARSE DATE
+    # DATE
     # =====================================================
 
     performance_date = parse_performance_date(
@@ -2091,7 +2080,7 @@ async def performance_to_channel(
     )
 
     # =====================================================
-    # PARSE PERFORMANCE
+    # PARSE
     # =====================================================
 
     performance = parse_performance(
@@ -2157,7 +2146,7 @@ B 13:00 | 4637 | 4632 | SL</code>
     )
 
     # =====================================================
-    # BUILD MESSAGE
+    # BUILD
     # =====================================================
 
     final_message = build_performance_message(
@@ -2169,7 +2158,7 @@ B 13:00 | 4637 | 4632 | SL</code>
     )
 
     # =====================================================
-    # CTA BUTTON
+    # CTA
     # =====================================================
 
     cta_keyboard = InlineKeyboardMarkup(
@@ -2193,7 +2182,7 @@ B 13:00 | 4637 | 4632 | SL</code>
     )
 
     # =====================================================
-    # SEND TO PUBLIC CHANNEL
+    # SEND CHANNEL
     # =====================================================
 
     try:
@@ -2220,10 +2209,6 @@ B 13:00 | 4637 | 4632 | SL</code>
             signal_count
 
         )
-
-        # =================================================
-        # ADMIN CONFIRMATION
-        # =================================================
 
         date_text = (
 
@@ -2300,6 +2285,11 @@ async def main():
     logger.info(
         "💳 Payment Group ID: %s",
         PAYMENT_GROUP_ID
+    )
+
+    logger.info(
+        "👥 Private Group ID: %s",
+        PRIVATE_GROUP_ID
     )
 
     logger.info(
