@@ -73,8 +73,22 @@ PRIVATE_GROUP_ID = -1003949834371
 # TEMP STORAGE
 # =========================================================
 
+# Paket yang dipilih user
 user_packages = {}
+
+# Bukti pembayaran
 user_proofs = {}
+
+# Data Nama / Broker / Gmail
+#
+# Data ini HANYA disimpan sementara.
+# TIDAK disimpan ke Google Sheets.
+#
+user_broker_data = {}
+
+# Menandakan user sedang diminta
+# mengirim data Nama / Broker / Gmail
+user_profile_pending = {}
 
 
 # =========================================================
@@ -1006,6 +1020,22 @@ async def send_payment_info(
         user_id
     ] = package_key
 
+    # Reset state pembayaran sebelumnya
+    user_proofs.pop(
+        user_id,
+        None
+    )
+
+    user_broker_data.pop(
+        user_id,
+        None
+    )
+
+    user_profile_pending.pop(
+        user_id,
+        None
+    )
+
     data = get_package_data(
         package_key
     )
@@ -1055,7 +1085,8 @@ harus terlihat jelas.
 ━━━━━━━━━━━━━━━━━━
 
 ⏳ Setelah bukti diterima,
-Admin akan melakukan verifikasi.
+kamu akan diminta mengisi data
+Nama, Broker dan Gmail.
 
 Terima kasih telah bergabung
 bersama <b>XAU AI Assistant Gold</b>.
@@ -1236,7 +1267,142 @@ setelah bukti diterima.
 
 
 # =========================================================
+# PARSE USER PROFILE
+# =========================================================
+
+def parse_user_profile(
+    text: str
+):
+
+    if not text:
+
+        return None
+
+    # -----------------------------------------------------
+    # Nama
+    # -----------------------------------------------------
+
+    nama_match = re.search(
+
+        r"(?:^|\n)\s*"
+        r"Nama\s*:\s*(.+?)(?=\n|$)",
+
+        text,
+
+        re.IGNORECASE
+
+    )
+
+    # -----------------------------------------------------
+    # Broker
+    #
+    # Bisa:
+    # Broker:
+    # Broker yang digunakan:
+    # -----------------------------------------------------
+
+    broker_match = re.search(
+
+        r"(?:^|\n)\s*"
+        r"(?:Broker\s+yang\s+digunakan|Broker)"
+        r"\s*:\s*(.+?)(?=\n|$)",
+
+        text,
+
+        re.IGNORECASE
+
+    )
+
+    # -----------------------------------------------------
+    # Gmail
+    # -----------------------------------------------------
+
+    gmail_match = re.search(
+
+        r"(?:^|\n)\s*"
+        r"Gmail\s*:\s*(.+?)(?=\n|$)",
+
+        text,
+
+        re.IGNORECASE
+
+    )
+
+    if not nama_match:
+
+        return None
+
+    if not broker_match:
+
+        return None
+
+    if not gmail_match:
+
+        return None
+
+    nama = nama_match.group(
+        1
+    ).strip()
+
+    broker = broker_match.group(
+        1
+    ).strip()
+
+    gmail = gmail_match.group(
+        1
+    ).strip()
+
+    if not nama:
+
+        return None
+
+    if not broker:
+
+        return None
+
+    if not gmail:
+
+        return None
+
+    # -----------------------------------------------------
+    # VALIDASI EMAIL
+    # -----------------------------------------------------
+
+    email_pattern = (
+        r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
+    )
+
+    if not re.match(
+        email_pattern,
+        gmail
+    ):
+
+        return None
+
+    return {
+
+        "nama":
+            nama,
+
+        "broker":
+            broker,
+
+        "gmail":
+            gmail
+
+    }
+
+
+# =========================================================
 # RECEIVE PAYMENT
+#
+# PERUBAHAN UTAMA:
+#
+# Setelah foto diterima:
+# → simpan foto
+# → langsung minta Nama/Broker/Gmail
+#
+# Tidak ada lagi tombol "KIRIM KE ADMIN".
 # =========================================================
 
 @dp.message(
@@ -1246,48 +1412,96 @@ async def receive_payment(
     message: Message
 ):
 
+    user_id = message.from_user.id
+
+    # -----------------------------------------------------
+    # CEK PAKET
+    # -----------------------------------------------------
+
+    package_key = user_packages.get(
+        user_id
+    )
+
+    if not package_key:
+
+        await message.answer(
+
+            """
+⚠️ <b>PAKET BELUM DIPILIH</b>
+
+Silakan pilih paket terlebih dahulu
+melalui /start.
+""",
+
+            parse_mode="HTML"
+
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # SIMPAN BUKTI
+    # -----------------------------------------------------
+
     user_proofs[
-        message.from_user.id
+        user_id
     ] = message.photo[-1].file_id
 
-    keyboard = InlineKeyboardMarkup(
+    # -----------------------------------------------------
+    # AKTIFKAN PROFILE PENDING
+    # -----------------------------------------------------
 
-        inline_keyboard=[
+    user_profile_pending[
+        user_id
+    ] = True
 
-            [
-
-                InlineKeyboardButton(
-
-                    text="✅ KIRIM KE ADMIN",
-
-                    callback_data="verify"
-
-                )
-
-            ]
-
-        ]
-
+    logger.info(
+        "Bukti pembayaran diterima | "
+        "user_id=%s | "
+        "username=%s | "
+        "package=%s",
+        user_id,
+        message.from_user.username,
+        package_key
     )
+
+    # -----------------------------------------------------
+    # MINTA DATA USER
+    # -----------------------------------------------------
 
     text = """
 ✅ <b>BUKTI PEMBAYARAN DITERIMA</b>
 
 ━━━━━━━━━━━━━━━━━━
 
-Status:
+Untuk menyesuaikan <b>AI dengan Spread dari Broker yang kamu gunakan</b>, silakan isi data berikut:
 
-🟡 Menunggu verifikasi Admin
+<b>Nama:</b>
+<b>Broker yang digunakan:</b>
+<b>Gmail:</b>
 
-Klik tombol di bawah untuk
-mengirim permintaan pengecekan.
+━━━━━━━━━━━━━━━━━━
+
+📌 <b>Contoh pengisian:</b>
+
+<code>Nama: Budi
+Broker yang digunakan: XM
+Gmail: budi@gmail.com</code>
+
+━━━━━━━━━━━━━━━━━━
+
+Silakan <b>kirim format tersebut kembali ke sini</b>.
+
+Data ini akan dikirim kepada Admin
+bersamaan dengan bukti pembayaran
+untuk proses verifikasi.
+
+🔒 Data Broker dan Gmail <b>tidak disimpan ke Google Sheets</b>.
 """
 
     await message.answer(
 
         text,
-
-        reply_markup=keyboard,
 
         parse_mode="HTML"
 
@@ -1295,47 +1509,177 @@ mengirim permintaan pengecekan.
 
 
 # =========================================================
-# VERIFY PAYMENT
+# RECEIVE USER PROFILE
+#
+# USER:
+#
+# Nama: Budi
+# Broker yang digunakan: XM
+# Gmail: budi@gmail.com
+#
+# → BOT KIRIM KE PAYMENT_GROUP_ID
 # =========================================================
 
-@dp.callback_query(
-    F.data == "verify"
+@dp.message(
+    F.text
 )
-async def verify(
-    callback: CallbackQuery
+async def receive_profile(
+    message: Message
 ):
 
-    user_id = callback.from_user.id
+    user_id = message.from_user.id
 
-    package_key = user_packages.get(
-        user_id
+    text = message.text or ""
+
+    # -----------------------------------------------------
+    # COMMAND
+    # -----------------------------------------------------
+
+    if text.startswith("/"):
+
+        return
+
+    # -----------------------------------------------------
+    # HANYA JIKA SEDANG MENUNGGU PROFILE
+    # -----------------------------------------------------
+
+    if not user_profile_pending.get(
+        user_id,
+        False
+    ):
+
+        # Kalau bukan profile,
+        # biarkan handler performance
+        # menangani pesan admin.
+        if is_admin(user_id):
+
+            await process_performance_message(
+                message
+            )
+
+        return
+
+    # -----------------------------------------------------
+    # PARSE PROFILE
+    # -----------------------------------------------------
+
+    profile = parse_user_profile(
+        text
     )
 
-    proof = user_proofs.get(
-        user_id
-    )
+    if not profile:
 
-    if not package_key or not proof:
+        await message.answer(
 
-        await safe_callback_answer(
+            """
+❌ <b>FORMAT BELUM SESUAI</b>
 
-            callback,
+Silakan kirim dengan format:
 
-            "⚠️ Data belum lengkap",
+<code>Nama: Budi
+Broker yang digunakan: XM
+Gmail: budi@gmail.com</code>
 
-            True
+Pastikan:
+
+✅ Nama diisi
+✅ Broker diisi
+✅ Gmail diisi dengan email yang valid
+""",
+
+            parse_mode="HTML"
 
         )
 
         return
 
-    await remove_keyboard(
-        callback.message
+    # -----------------------------------------------------
+    # CEK BUKTI
+    # -----------------------------------------------------
+
+    proof = user_proofs.get(
+        user_id
     )
 
-    data = get_package_data(
-        package_key
+    if not proof:
+
+        await message.answer(
+
+            """
+❌ Bukti pembayaran tidak ditemukan.
+
+Silakan kirim ulang foto bukti pembayaran.
+""",
+
+        )
+
+        user_profile_pending.pop(
+            user_id,
+            None
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # CEK PAKET
+    # -----------------------------------------------------
+
+    package_key = user_packages.get(
+        user_id
     )
+
+    if not package_key:
+
+        await message.answer(
+
+            """
+❌ Paket pembayaran tidak ditemukan.
+
+Silakan mulai kembali melalui /start.
+""",
+
+        )
+
+        user_profile_pending.pop(
+            user_id,
+            None
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # PACKAGE DATA
+    # -----------------------------------------------------
+
+    try:
+
+        data = get_package_data(
+            package_key
+        )
+
+    except Exception:
+
+        await message.answer(
+
+            "❌ Data paket tidak ditemukan."
+
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # SIMPAN SEMENTARA
+    #
+    # TIDAK MASUK SHEETS
+    # -----------------------------------------------------
+
+    user_broker_data[
+        user_id
+    ] = profile
+
+    # -----------------------------------------------------
+    # ADMIN KEYBOARD
+    # -----------------------------------------------------
 
     admin_keyboard = InlineKeyboardMarkup(
 
@@ -1347,7 +1691,9 @@ async def verify(
 
                     text="✅ APPROVE",
 
-                    callback_data=f"approve_{user_id}"
+                    callback_data=(
+                        f"approve_{user_id}"
+                    )
 
                 ),
 
@@ -1355,7 +1701,9 @@ async def verify(
 
                     text="❌ REJECT",
 
-                    callback_data=f"reject_{user_id}"
+                    callback_data=(
+                        f"reject_{user_id}"
+                    )
 
                 )
 
@@ -1365,89 +1713,198 @@ async def verify(
 
     )
 
+    # -----------------------------------------------------
+    # USERNAME
+    # -----------------------------------------------------
+
     username = (
 
-        f"@{callback.from_user.username}"
+        f"@{message.from_user.username}"
 
-        if callback.from_user.username
+        if message.from_user.username
 
         else "-"
 
     )
 
+    # -----------------------------------------------------
+    # GROUP ACCESS
+    # -----------------------------------------------------
+
     group_access = (
+
         "✅ Ya"
-        if package_has_group_access(package_key)
+
+        if package_has_group_access(
+            package_key
+        )
+
         else "❌ Tidak"
+
     )
+
+    # -----------------------------------------------------
+    # ADMIN CAPTION
+    # -----------------------------------------------------
 
     admin_text = f"""
 📥 <b>PAYMENT VERIFICATION</b>
 
 ━━━━━━━━━━━━━━━━━━
 
-👤 <b>Nama</b>
-{callback.from_user.full_name}
+👤 <b>DATA USER</b>
 
-🔹 <b>Username</b>
-{username}
+Nama:
+<b>{profile['nama']}</b>
 
-🆔 <b>Telegram ID</b>
+Username:
+<b>{username}</b>
+
+Telegram ID:
 <code>{user_id}</code>
 
 ━━━━━━━━━━━━━━━━━━
 
-📦 <b>Paket</b>
+🏦 <b>BROKER</b>
+
+<b>{profile['broker']}</b>
+
+📧 <b>GMAIL</b>
+
+<b>{profile['gmail']}</b>
+
+━━━━━━━━━━━━━━━━━━
+
+📦 <b>PAKET</b>
+
 {data['label']}
 
-💰 <b>Total</b>
+💰 <b>TOTAL</b>
+
 Rp {format_rupiah(data['price'])}
 
-👥 <b>Akses Grup</b>
+👥 <b>AKSES GRUP</b>
+
 {group_access}
 
 ━━━━━━━━━━━━━━━━━━
 
-⚡ Silakan lakukan verifikasi.
+📸 Bukti pembayaran terlampir
+pada pesan ini.
+
+ℹ️ Broker dan Gmail hanya dikirim
+ke Admin untuk kebutuhan penyesuaian
+AI dengan spread broker.
+
+🔒 <b>Broker/Gmail tidak disimpan
+ke Google Sheets.</b>
+
+━━━━━━━━━━━━━━━━━━
+
+Silakan pilih tindakan:
 """
 
-    await bot.send_photo(
+    # -----------------------------------------------------
+    # KIRIM KE PAYMENT GROUP
+    # -----------------------------------------------------
 
-        chat_id=PAYMENT_GROUP_ID,
+    try:
 
-        photo=proof,
+        await bot.send_photo(
 
-        caption=admin_text,
+            chat_id=PAYMENT_GROUP_ID,
 
-        reply_markup=admin_keyboard,
+            photo=proof,
 
-        parse_mode="HTML"
+            caption=admin_text,
 
+            reply_markup=admin_keyboard,
+
+            parse_mode="HTML"
+
+        )
+
+        logger.info(
+
+            "Payment verification dikirim | "
+            "user=%s | "
+            "package=%s | "
+            "broker=%s | "
+            "gmail=%s",
+
+            user_id,
+
+            package_key,
+
+            profile["broker"],
+
+            profile["gmail"]
+
+        )
+
+    except Exception as e:
+
+        logger.exception(
+
+            "Gagal mengirim payment verification "
+            "ke PAYMENT_GROUP_ID | user=%s",
+            user_id
+
+        )
+
+        await message.answer(
+
+            f"""
+❌ <b>GAGAL MENGIRIM DATA KE ADMIN</b>
+
+Silakan coba lagi beberapa saat.
+
+⚠️ Error:
+<code>{e}</code>
+""",
+
+            parse_mode="HTML"
+
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # PROFILE SUDAH TERKIRIM
+    # -----------------------------------------------------
+
+    user_profile_pending.pop(
+        user_id,
+        None
     )
 
-    await callback.message.answer(
+    # -----------------------------------------------------
+    # USER CONFIRMATION
+    # -----------------------------------------------------
+
+    await message.answer(
 
         """
-⏳ <b>VERIFIKASI TERKIRIM</b>
+✅ <b>DATA BERHASIL DIKIRIM</b>
 
-Admin sedang melakukan pengecekan
-pembayaran Anda.
+━━━━━━━━━━━━━━━━━━
 
-🟡 Status: Menunggu approval
+📸 Bukti pembayaran
+👤 Nama
+🏦 Broker
+📧 Gmail
 
-Anda akan menerima notifikasi
-setelah membership aktif.
+semuanya sudah dikirim ke Admin.
+
+🟡 <b>Status: MENUNGGU VERIFIKASI</b>
+
+Setelah Admin menyetujui pembayaran,
+membership kamu akan langsung diaktifkan.
+
+Mohon tunggu konfirmasi Admin.
 """,
 
         parse_mode="HTML"
-
-    )
-
-    await safe_callback_answer(
-
-        callback,
-
-        "Dikirim ke Admin"
 
     )
 
@@ -1931,6 +2388,10 @@ async def approve(
 
     # =====================================================
     # SAVE MEMBER
+    #
+    # TETAP SAMA
+    #
+    # Broker dan Gmail SENGAJA TIDAK DIMASUKKAN.
     # =====================================================
 
     save_member({
@@ -1962,6 +2423,13 @@ async def approve(
             "ACTIVE"
 
     })
+
+    logger.info(
+        "Member disimpan ke Google Sheets | "
+        "user=%s | package=%s",
+        user_id,
+        package_key
+    )
 
     # =====================================================
     # AI BUTTON
@@ -2201,6 +2669,30 @@ dan user sudah menerima akses.
 
     )
 
+    # =====================================================
+    # CLEANUP TEMP DATA
+    # =====================================================
+
+    user_packages.pop(
+        user_id,
+        None
+    )
+
+    user_proofs.pop(
+        user_id,
+        None
+    )
+
+    user_broker_data.pop(
+        user_id,
+        None
+    )
+
+    user_profile_pending.pop(
+        user_id,
+        None
+    )
+
 
 # =========================================================
 # REJECT MEMBER
@@ -2251,15 +2743,25 @@ Mohon:
 Admin siap membantu proses aktivasi Anda.
 """
 
-    await bot.send_message(
+    try:
 
-        chat_id=user_id,
+        await bot.send_message(
 
-        text=reject_text,
+            chat_id=user_id,
 
-        parse_mode="HTML"
+            text=reject_text,
 
-    )
+            parse_mode="HTML"
+
+        )
+
+    except Exception as e:
+
+        logger.warning(
+            "Gagal mengirim reject ke user %s: %s",
+            user_id,
+            e
+        )
 
     await callback.message.answer(
 
@@ -2281,6 +2783,30 @@ diverifikasi.
 
         "Payment rejected"
 
+    )
+
+    # =====================================================
+    # CLEANUP
+    # =====================================================
+
+    user_packages.pop(
+        user_id,
+        None
+    )
+
+    user_proofs.pop(
+        user_id,
+        None
+    )
+
+    user_broker_data.pop(
+        user_id,
+        None
+    )
+
+    user_profile_pending.pop(
+        user_id,
+        None
     )
 
 
@@ -2373,27 +2899,12 @@ async def sent_to_user(
 
 
 # =========================================================
-# PERFORMANCE ADMIN
+# PERFORMANCE PROCESSOR
 # =========================================================
 
-@dp.message(
-    F.text
-)
-async def performance_to_channel(
+async def process_performance_message(
     message: Message
 ):
-
-    # =====================================================
-    # COMMAND JANGAN DIPROSES
-    # =====================================================
-
-    if message.text.startswith("/"):
-
-        return
-
-    # =====================================================
-    # ADMIN SAJA
-    # =====================================================
 
     if not is_admin(
         message.from_user.id
@@ -2401,7 +2912,11 @@ async def performance_to_channel(
 
         return
 
-    text = message.text.strip()
+    text = message.text or ""
+
+    if not text:
+
+        return
 
     # =====================================================
     # DATE
@@ -2596,6 +3111,56 @@ dan memiliki izin posting.
 
 
 # =========================================================
+# PERFORMANCE ADMIN
+#
+# Handler terpisah supaya tidak bentrok
+# dengan data Broker/Gmail user.
+# =========================================================
+
+@dp.message(
+    F.text
+)
+async def performance_to_channel(
+    message: Message
+):
+
+    # =====================================================
+    # COMMAND JANGAN DIPROSES
+    # =====================================================
+
+    if message.text.startswith("/"):
+
+        return
+
+    # =====================================================
+    # PROFILE USER SEDANG MENUNGGU
+    #
+    # Handler receive_profile yang menangani.
+    # =====================================================
+
+    if user_profile_pending.get(
+        message.from_user.id,
+        False
+    ):
+
+        return
+
+    # =====================================================
+    # ADMIN SAJA
+    # =====================================================
+
+    if not is_admin(
+        message.from_user.id
+    ):
+
+        return
+
+    await process_performance_message(
+        message
+    )
+
+
+# =========================================================
 # MAIN
 # =========================================================
 
@@ -2646,6 +3211,14 @@ async def main():
 
     logger.info(
         "🔐 Group Invite = 1 user + expired 24 jam"
+    )
+
+    logger.info(
+        "📝 Broker/Gmail = ADMIN ONLY"
+    )
+
+    logger.info(
+        "📊 Broker/Gmail = TIDAK disimpan ke Google Sheets"
     )
 
     logger.info(
