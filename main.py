@@ -25,7 +25,12 @@ from config import (
 )
 
 from packages import PACKAGE_MAP, get_active_price
-from spreadsheet import save_member
+
+from spreadsheet import (
+    save_member,
+    get_expired_group_members,
+    update_member_status
+)
 
 
 # =========================================================
@@ -60,7 +65,7 @@ dp = Dispatcher()
 # PRIVATE GROUP
 # =========================================================
 
-# Grup diskusi & sharing
+# Grup Diskusi & Sharing
 PRIVATE_GROUP_ID = -1003949834371
 
 
@@ -128,7 +133,9 @@ def get_package_data(
 # ADMIN
 # =========================================================
 
-def is_admin(user_id: int) -> bool:
+def is_admin(
+    user_id: int
+) -> bool:
 
     try:
 
@@ -205,7 +212,9 @@ async def remove_keyboard(
 # FORMAT RUPIAH
 # =========================================================
 
-def format_rupiah(value):
+def format_rupiah(
+    value
+):
 
     try:
 
@@ -223,7 +232,9 @@ def format_rupiah(value):
 # FORMAT USD
 # =========================================================
 
-def format_usd(value):
+def format_usd(
+    value
+):
 
     if value > 0:
 
@@ -240,7 +251,9 @@ def format_usd(value):
 # FORMAT PRICE
 # =========================================================
 
-def format_price(value):
+def format_price(
+    value
+):
 
     if value is None:
 
@@ -1067,8 +1080,6 @@ bersama <b>XAU AI Assistant Gold</b>.
 
 # =========================================================
 # START
-#
-# LANGSUNG PILIH PAKET
 # =========================================================
 
 @dp.message(
@@ -1084,10 +1095,6 @@ async def start(
         message.from_user.username,
         message.text
     )
-
-    # =====================================================
-    # DEEP LINK
-    # =====================================================
 
     payload = None
 
@@ -1118,12 +1125,6 @@ async def start(
         if sent:
 
             return
-
-    # =====================================================
-    # NORMAL START
-    #
-    # LANGSUNG PILIH HARGA
-    # =====================================================
 
     await message.answer(
 
@@ -1453,6 +1454,9 @@ setelah membership aktif.
 
 # =========================================================
 # CREATE ONE-TIME GROUP INVITE
+#
+# 1 ORANG SAJA
+# EXPIRED OTOMATIS 24 JAM
 # =========================================================
 
 async def create_group_invite(
@@ -1461,25 +1465,39 @@ async def create_group_invite(
 
     try:
 
+        expire_at = int(
+            (
+                datetime.now()
+                + timedelta(hours=24)
+            ).timestamp()
+        )
+
         invite = await bot.create_chat_invite_link(
 
             chat_id=PRIVATE_GROUP_ID,
 
             name=f"Member {user_id}",
 
-            member_limit=1
+            # Hanya satu orang yang bisa menggunakan
+            member_limit=1,
+
+            # Link expired setelah 24 jam
+            expire_date=expire_at
 
         )
 
         logger.info(
-            "Invite grup dibuat | user=%s | invite=%s",
+            "Invite grup dibuat | "
+            "user=%s | "
+            "expire=24 jam | "
+            "invite=%s",
             user_id,
             invite.invite_link
         )
 
         return invite.invite_link
 
-    except Exception as e:
+    except Exception:
 
         logger.exception(
             "Gagal membuat invite grup | user=%s",
@@ -1487,6 +1505,324 @@ async def create_group_invite(
         )
 
         return None
+
+
+# =========================================================
+# KICK EXPIRED MEMBER
+#
+# BAN SEBENTAR → UNBAN
+#
+# Efeknya seperti KICK.
+# User tidak permanent banned.
+# =========================================================
+
+async def kick_expired_member(
+    telegram_id: int
+):
+
+    try:
+
+        telegram_id = int(
+            telegram_id
+        )
+
+        logger.info(
+            "[EXPIRED] Mencoba mengeluarkan user=%s",
+            telegram_id
+        )
+
+        # -------------------------------------------------
+        # BAN
+        # -------------------------------------------------
+
+        await bot.ban_chat_member(
+
+            chat_id=PRIVATE_GROUP_ID,
+
+            user_id=telegram_id
+
+        )
+
+        logger.info(
+            "[EXPIRED] User %s berhasil dikeluarkan.",
+            telegram_id
+        )
+
+        # -------------------------------------------------
+        # UNBAN
+        # -------------------------------------------------
+
+        try:
+
+            await bot.unban_chat_member(
+
+                chat_id=PRIVATE_GROUP_ID,
+
+                user_id=telegram_id,
+
+                only_if_banned=True
+
+            )
+
+            logger.info(
+                "[EXPIRED] User %s berhasil di-unban.",
+                telegram_id
+            )
+
+        except Exception as e:
+
+            logger.warning(
+                "[EXPIRED] Gagal unban user=%s: %s",
+                telegram_id,
+                e
+            )
+
+        return True
+
+    except Exception as e:
+
+        logger.exception(
+            "[EXPIRED] Gagal kick user=%s: %s",
+            telegram_id,
+            e
+        )
+
+        return False
+
+
+# =========================================================
+# CHECK EXPIRED MEMBERS
+#
+# Google Sheets → cek expired → kick grup
+# =========================================================
+
+async def check_expired_members():
+
+    logger.info(
+        "=========================================="
+    )
+
+    logger.info(
+        "[EXPIRED CHECK] Mulai pengecekan Google Sheets"
+    )
+
+    try:
+
+        # -------------------------------------------------
+        # AMBIL MEMBER EXPIRED
+        # -------------------------------------------------
+
+        expired_members = await asyncio.to_thread(
+
+            get_expired_group_members
+
+        )
+
+        if not expired_members:
+
+            logger.info(
+                "[EXPIRED CHECK] "
+                "Tidak ada member expired."
+            )
+
+            return
+
+        logger.info(
+            "[EXPIRED CHECK] "
+            "Ditemukan %s member expired.",
+            len(expired_members)
+        )
+
+        # -------------------------------------------------
+        # PROSES MEMBER
+        # -------------------------------------------------
+
+        for member in expired_members:
+
+            telegram_id = member.get(
+                "telegram_id"
+            )
+
+            username = member.get(
+                "username",
+                ""
+            )
+
+            nama = member.get(
+                "nama",
+                ""
+            )
+
+            paket = member.get(
+                "paket",
+                ""
+            )
+
+            expired = member.get(
+                "expired",
+                ""
+            )
+
+            logger.info(
+                "[EXPIRED] "
+                "ID=%s | "
+                "username=%s | "
+                "nama=%s | "
+                "paket=%s | "
+                "expired=%s",
+                telegram_id,
+                username,
+                nama,
+                paket,
+                expired
+            )
+
+            # -------------------------------------------------
+            # VALIDATE ID
+            # -------------------------------------------------
+
+            try:
+
+                telegram_id = int(
+                    telegram_id
+                )
+
+            except Exception:
+
+                logger.warning(
+                    "[EXPIRED] "
+                    "Telegram ID tidak valid: %s",
+                    telegram_id
+                )
+
+                continue
+
+            # -------------------------------------------------
+            # KICK
+            # -------------------------------------------------
+
+            kicked = await kick_expired_member(
+                telegram_id
+            )
+
+            # -------------------------------------------------
+            # UPDATE SHEET
+            # -------------------------------------------------
+
+            if kicked:
+
+                try:
+
+                    updated = await asyncio.to_thread(
+
+                        update_member_status,
+
+                        telegram_id,
+
+                        "EXPIRED"
+
+                    )
+
+                    if updated is False:
+
+                        logger.warning(
+                            "[SHEET] "
+                            "User %s gagal update EXPIRED.",
+                            telegram_id
+                        )
+
+                    else:
+
+                        logger.info(
+                            "[SHEET] "
+                            "User %s -> EXPIRED",
+                            telegram_id
+                        )
+
+                except Exception as e:
+
+                    logger.exception(
+                        "[SHEET ERROR] "
+                        "user=%s | %s",
+                        telegram_id,
+                        e
+                    )
+
+            else:
+
+                logger.warning(
+                    "[EXPIRED] "
+                    "User %s gagal dikeluarkan. "
+                    "Status Sheets tidak diubah.",
+                    telegram_id
+                )
+
+    except Exception as e:
+
+        logger.exception(
+            "[EXPIRED CHECK ERROR] %s",
+            e
+        )
+
+    logger.info(
+        "=========================================="
+    )
+
+
+# =========================================================
+# EXPIRED MONITOR
+#
+# CHECK SETIAP 10 MENIT
+# =========================================================
+
+async def expired_monitor():
+
+    logger.info(
+        "=========================================="
+    )
+
+    logger.info(
+        "⏳ EXPIRED MONITOR STARTED"
+    )
+
+    logger.info(
+        "📊 Google Sheets → Check setiap 10 menit"
+    )
+
+    logger.info(
+        "👥 Private Group ID: %s",
+        PRIVATE_GROUP_ID
+    )
+
+    logger.info(
+        "=========================================="
+    )
+
+    # Tunggu bot startup
+    await asyncio.sleep(
+        10
+    )
+
+    while True:
+
+        try:
+
+            await check_expired_members()
+
+        except Exception as e:
+
+            logger.exception(
+                "[EXPIRED MONITOR ERROR] %s",
+                e
+            )
+
+        # -------------------------------------------------
+        # 10 MENIT
+        # -------------------------------------------------
+
+        await asyncio.sleep(
+            600
+        )
 
 
 # =========================================================
@@ -1649,11 +1985,6 @@ async def approve(
 
     # =====================================================
     # GROUP INVITE
-    #
-    # HANYA:
-    # 6 BULAN
-    # 12 BULAN
-    # 3 TAHUN
     # =====================================================
 
     invite_link = None
@@ -1714,7 +2045,8 @@ Anda mendapatkan akses grup private.
 Gunakan tombol di bawah untuk bergabung.
 
 ⚠️ Link ini hanya dapat digunakan
-untuk <b>1 anggota</b>.
+untuk <b>1 anggota</b> dan berlaku
+selama <b>24 jam</b>.
 """
 
         else:
@@ -2270,7 +2602,15 @@ dan memiliki izin posting.
 async def main():
 
     logger.info(
+        "=========================================="
+    )
+
+    logger.info(
         "🤖 XAU AI Assistant Bot Running..."
+    )
+
+    logger.info(
+        "=========================================="
     )
 
     logger.info(
@@ -2303,6 +2643,26 @@ async def main():
         TP2_PIPS,
         SL_PIPS
     )
+
+    logger.info(
+        "🔐 Group Invite = 1 user + expired 24 jam"
+    )
+
+    logger.info(
+        "⏳ Expired Monitor = aktif setiap 10 menit"
+    )
+
+    # =====================================================
+    # START EXPIRED MONITOR
+    # =====================================================
+
+    asyncio.create_task(
+        expired_monitor()
+    )
+
+    # =====================================================
+    # START TELEGRAM BOT
+    # =====================================================
 
     await dp.start_polling(
         bot
