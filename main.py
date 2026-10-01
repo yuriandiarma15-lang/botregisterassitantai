@@ -4,7 +4,7 @@ import re
 
 from datetime import datetime, timedelta
 
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, BaseMiddleware
 from aiogram.filters import CommandStart
 from aiogram.types import (
     Message,
@@ -60,6 +60,34 @@ bot = Bot(
 
 dp = Dispatcher()
 
+# =========================================================
+# IGNORE INCOMING GROUP MESSAGES
+# =========================================================
+
+class IgnoreGroupMessagesMiddleware(BaseMiddleware):
+    """
+    Abaikan semua pesan masuk dari group/supergroup.
+
+    Private chat tetap diproses untuk semua user.
+    Pemeriksaan admin hanya berlaku pada handler admin.
+    Pesan keluar bot dan callback tidak diblokir.
+    """
+
+    async def __call__(self, handler, event, data):
+        chat = getattr(event, "chat", None)
+
+        if chat and chat.type in ("group", "supergroup"):
+            logger.info(
+                "GROUP MESSAGE IGNORED | chat_id=%s | type=%s",
+                chat.id,
+                chat.type
+            )
+            return None
+
+        return await handler(event, data)
+
+
+dp.message.middleware(IgnoreGroupMessagesMiddleware())
 
 # =========================================================
 # PRIVATE GROUP
