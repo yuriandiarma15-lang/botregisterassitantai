@@ -27,9 +27,7 @@ from config import (
 from packages import PACKAGE_MAP, get_active_price
 
 from spreadsheet import (
-    save_member,
-    get_expired_group_members,
-    update_member_status
+    save_member
 )
 
 
@@ -90,33 +88,12 @@ class IgnoreGroupMessagesMiddleware(BaseMiddleware):
 dp.message.middleware(IgnoreGroupMessagesMiddleware())
 
 # =========================================================
-# PRIVATE GROUP
+# PAYMENT / TEMP STORAGE
 # =========================================================
 
-# Grup Diskusi & Sharing
-PRIVATE_GROUP_ID = -1003949834371
-
-
-# =========================================================
-# TEMP STORAGE
-# =========================================================
-
-# Paket yang dipilih user
 user_packages = {}
-
-# Bukti pembayaran
 user_proofs = {}
-
-# Data Nama / Broker / Gmail
-#
-# Data ini HANYA disimpan sementara.
-# TIDAK disimpan ke Google Sheets.
-#
-user_broker_data = {}
-
-# Menandakan user sedang diminta
-# mengirim data Nama / Broker / Gmail
-user_profile_pending = {}
+user_payment_status = {}
 
 
 # =========================================================
@@ -141,15 +118,9 @@ SL_PIPS = 50
 # PACKAGE ACCESS
 # =========================================================
 
-def package_has_group_access(
-    package_key: str
-) -> bool:
-
-    return package_key in (
-        "6month",
-        "12month",
-        "permanent"
-    )
+def package_has_group_access(package_key: str) -> bool:
+    """Semua paket hanya mendapatkan akses Signal AI."""
+    return False
 
 
 # =========================================================
@@ -907,57 +878,13 @@ secara realtime dan terstruktur.</b>
 # =========================================================
 
 def build_package_keyboard() -> InlineKeyboardMarkup:
-
-    harga_3tahun = format_rupiah(
-        get_active_price("permanent")
-    )
-
     return InlineKeyboardMarkup(
-
         inline_keyboard=[
-
-            [
-                InlineKeyboardButton(
-                    text=(
-                        "🥇 STARTER • 1 Bulan | "
-                        "Rp299.000"
-                    ),
-                    callback_data="pkg_1month"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text=(
-                        "🥈 PRO • 6 Bulan | "
-                        "Rp500.000"
-                    ),
-                    callback_data="pkg_6month"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text=(
-                        "🥉 ELITE • 12 Bulan | "
-                        "Rp850.000"
-                    ),
-                    callback_data="pkg_12month"
-                )
-            ],
-
-            [
-                InlineKeyboardButton(
-                    text=(
-                        f"👑 3 TAHUN | "
-                        f"Rp{harga_3tahun}"
-                    ),
-                    callback_data="pkg_permanent"
-                )
-            ]
-
+            [InlineKeyboardButton(text="🥇 1 BULAN | Rp299.000", callback_data="pkg_1month")],
+            [InlineKeyboardButton(text="🥈 6 BULAN | Rp500.000", callback_data="pkg_6month")],
+            [InlineKeyboardButton(text="🥉 12 BULAN | Rp900.000", callback_data="pkg_12month")],
+            [InlineKeyboardButton(text="👑 3 TAHUN | Rp1.500.000", callback_data="pkg_permanent")]
         ]
-
     )
 
 
@@ -966,60 +893,55 @@ def build_package_keyboard() -> InlineKeyboardMarkup:
 # =========================================================
 
 def build_package_choice_text() -> str:
-
-    harga_3tahun = format_rupiah(
-        get_active_price("permanent")
-    )
-
-    return f"""
+    return """
 💎 <b>PILIH MEMBERSHIP PLAN</b>
 
 ━━━━━━━━━━━━━━━━━━
 
-🥇 <b>STARTER</b>
-📅 1 Bulan
+🥇 <b>1 BULAN</b>
 💰 <b>Rp299.000</b>
 
-🤖 AI Assistant Telegram
+🤖 Signal AI / AI Assistant
+📊 Analisa XAUUSD
+🧠 Smart Money Concept
 
 ━━━━━━━━━━━━━━━━━━
 
-🥈 <b>PRO</b>
-📅 6 Bulan
+🥈 <b>6 BULAN</b>
 💰 <b>Rp500.000</b>
 
-🤖 AI Assistant
-👥 Grup Diskusi &amp; Sharing
+🤖 Signal AI / AI Assistant
+📊 Analisa XAUUSD
+🧠 Smart Money Concept
 
 ━━━━━━━━━━━━━━━━━━
 
-🥉 <b>ELITE</b>
-📅 12 Bulan
-💰 <b>Rp850.000</b>
+🥉 <b>12 BULAN</b>
+💰 <b>Rp900.000</b>
 
-🤖 AI Assistant
-👥 Grup Diskusi &amp; Sharing
+🤖 Signal AI / AI Assistant
+📊 Analisa XAUUSD
+🧠 Smart Money Concept
 
 ━━━━━━━━━━━━━━━━━━
 
 👑 <b>3 TAHUN</b>
-📅 3 Tahun
-💰 <b>Rp{harga_3tahun}</b>
+💰 <b>Rp1.500.000</b>
 
-🤖 AI Assistant
-👥 Grup Diskusi &amp; Sharing
+🤖 Signal AI / AI Assistant
+📊 Analisa XAUUSD
+🧠 Smart Money Concept
 
 ━━━━━━━━━━━━━━━━━━
 
-✨ <b>Semua paket mendapatkan:</b>
+✨ <b>SEMUA PAKET:</b>
 
-✅ AI Assistant Telegram
+✅ Signal AI / AI Assistant Telegram
 ✅ Analisa XAUUSD
-✅ Smart Money Analysis
+✅ Smart Money Concept
+✅ Market Intelligence
 
-👥 Paket 6 Bulan, 12 Bulan &amp;
-3 Tahun mendapatkan akses
-Grup Diskusi &amp; Sharing.
+ℹ️ <b>Tidak ada akses Grup Diskusi &amp; Sharing.</b>
 
 Silakan pilih paket.
 """
@@ -1036,105 +958,70 @@ async def send_payment_info(
 ) -> bool:
 
     if package_key not in PACKAGE_MAP:
-
-        logger.warning(
-            "Package key tidak dikenali: %s",
-            package_key
-        )
-
+        logger.warning("Package key tidak dikenali: %s", package_key)
         return False
 
-    user_packages[
-        user_id
-    ] = package_key
+    user_packages[user_id] = package_key
+    user_proofs.pop(user_id, None)
+    user_payment_status[user_id] = "WAITING_PROOF"
 
-    # Reset state pembayaran sebelumnya
-    user_proofs.pop(
-        user_id,
-        None
-    )
-
-    user_broker_data.pop(
-        user_id,
-        None
-    )
-
-    user_profile_pending.pop(
-        user_id,
-        None
-    )
-
-    data = get_package_data(
-        package_key
-    )
-
-    group_text = ""
-
-    if package_has_group_access(
-        package_key
-    ):
-
-        group_text = """
-👥 <b>Grup Diskusi &amp; Sharing</b>
-Akses grup diberikan setelah pembayaran
-disetujui Admin.
-"""
+    data = get_package_data(package_key)
 
     payment_text = f"""
-💳 <b>AKTIVASI MEMBERSHIP</b>
+💳 <b>AKTIVASI SIGNAL AI</b>
 
 ━━━━━━━━━━━━━━━━━━
 
 📦 <b>Paket</b>
 {data['label']}
 
-💰 <b>Total</b>
+💰 <b>Total Pembayaran</b>
 Rp {format_rupiah(data['price'])}
 
 ━━━━━━━━━━━━━━━━━━
 
-🤖 <b>AI ASSISTANT</b>
+🤖 <b>SIGNAL AI / AI ASSISTANT</b>
 
 Akses AI Assistant Telegram
-untuk analisa XAUUSD.
+untuk analisa XAUUSD berbasis
+Smart Money Concept.
 
-{group_text}
 ━━━━━━━━━━━━━━━━━━
 
 📌 <b>INSTRUKSI PEMBAYARAN</b>
 
 1️⃣ Scan QRIS
-2️⃣ Lakukan pembayaran
-3️⃣ Kirim bukti pembayaran ke chat ini
+2️⃣ Lakukan pembayaran sesuai nominal
+3️⃣ Screenshot bukti pembayaran
+4️⃣ Kirim screenshot tersebut ke chat ini
 
-📸 Screenshot pembayaran
-harus terlihat jelas.
+📸 Pastikan bukti pembayaran
+terlihat jelas dan nominalnya terbaca.
 
 ━━━━━━━━━━━━━━━━━━
 
-⏳ Setelah bukti diterima,
-kamu akan diminta mengisi data
-Nama, Broker dan Gmail.
+⏳ Setelah bukti pembayaran dikirim,
+bot akan langsung meneruskannya
+kepada Admin untuk pengecekan.
+
+Tidak perlu mengisi Nama, Broker,
+atau Gmail.
 
 Terima kasih telah bergabung
 bersama <b>XAU AI Assistant Gold</b>.
 """
 
-    await bot.send_photo(
-
-        chat_id=chat_id,
-
-        photo=FSInputFile(
-            "assets/qris.jpg"
-        ),
-
-        caption=payment_text,
-
-        parse_mode="HTML"
-
-    )
-
-    return True
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=FSInputFile("assets/qris.jpg"),
+            caption=payment_text,
+            parse_mode="HTML"
+        )
+        return True
+    except Exception as e:
+        logger.exception("Gagal mengirim QRIS | user=%s | error=%s", user_id, e)
+        return False
 
 
 # =========================================================
@@ -1253,522 +1140,66 @@ async def show_payment(
 # UPLOAD REQUEST
 # =========================================================
 
-@dp.callback_query(
-    F.data == "upload"
-)
-async def upload_request(
-    callback: CallbackQuery
-):
-
-    text = """
+@dp.callback_query(F.data == "upload")
+async def upload_request(callback: CallbackQuery):
+    await callback.message.answer(
+        """
 📸 <b>UPLOAD BUKTI PEMBAYARAN</b>
 
-━━━━━━━━━━━━━━━━━━
+Silakan kirim screenshot atau foto
+bukti pembayaran QRIS ke chat ini.
 
-Silakan kirim:
+Pastikan nominal dan bukti pembayaran
+terlihat jelas.
 
-✅ Screenshot pembayaran
-atau
-✅ Foto bukti transfer QRIS
-
-Pastikan bukti pembayaran terlihat jelas.
-
-Admin akan melakukan pengecekan
-setelah bukti diterima.
-"""
-
-    await callback.message.answer(
-
-        text,
-
+Setelah dikirim, bukti akan langsung
+diteruskan kepada Admin.
+""",
         parse_mode="HTML"
-
     )
-
-    await safe_callback_answer(
-
-        callback,
-
-        "Silakan upload bukti pembayaran"
-
-    )
+    await safe_callback_answer(callback, "Silakan upload bukti pembayaran")
 
 
 # =========================================================
-# PARSE USER PROFILE
+# RECEIVE PAYMENT PROOF
 # =========================================================
 
-def parse_user_profile(
-    text: str
-):
-
-    if not text:
-
-        return None
-
-    # -----------------------------------------------------
-    # Nama
-    # -----------------------------------------------------
-
-    nama_match = re.search(
-
-        r"(?:^|\n)\s*"
-        r"Nama\s*:\s*(.+?)(?=\n|$)",
-
-        text,
-
-        re.IGNORECASE
-
-    )
-
-    # -----------------------------------------------------
-    # Broker
-    #
-    # Bisa:
-    # Broker:
-    # Broker yang digunakan:
-    # -----------------------------------------------------
-
-    broker_match = re.search(
-
-        r"(?:^|\n)\s*"
-        r"(?:Broker\s+yang\s+digunakan|Broker)"
-        r"\s*:\s*(.+?)(?=\n|$)",
-
-        text,
-
-        re.IGNORECASE
-
-    )
-
-    # -----------------------------------------------------
-    # Gmail
-    # -----------------------------------------------------
-
-    gmail_match = re.search(
-
-        r"(?:^|\n)\s*"
-        r"Gmail\s*:\s*(.+?)(?=\n|$)",
-
-        text,
-
-        re.IGNORECASE
-
-    )
-
-    if not nama_match:
-
-        return None
-
-    if not broker_match:
-
-        return None
-
-    if not gmail_match:
-
-        return None
-
-    nama = nama_match.group(
-        1
-    ).strip()
-
-    broker = broker_match.group(
-        1
-    ).strip()
-
-    gmail = gmail_match.group(
-        1
-    ).strip()
-
-    if not nama:
-
-        return None
-
-    if not broker:
-
-        return None
-
-    if not gmail:
-
-        return None
-
-    # -----------------------------------------------------
-    # VALIDASI EMAIL
-    # -----------------------------------------------------
-
-    email_pattern = (
-        r"^[^@\s]+@[^@\s]+\.[^@\s]+$"
-    )
-
-    if not re.match(
-        email_pattern,
-        gmail
-    ):
-
-        return None
-
-    return {
-
-        "nama":
-            nama,
-
-        "broker":
-            broker,
-
-        "gmail":
-            gmail
-
-    }
-
-
-# =========================================================
-# RECEIVE PAYMENT
-#
-# PERUBAHAN UTAMA:
-#
-# Setelah foto diterima:
-# → simpan foto
-# → langsung minta Nama/Broker/Gmail
-#
-# Tidak ada lagi tombol "KIRIM KE ADMIN".
-# =========================================================
-
-@dp.message(
-    F.photo
-)
-async def receive_payment(
-    message: Message
-):
-
+@dp.message(F.photo)
+async def receive_payment(message: Message):
     user_id = message.from_user.id
-
-    # -----------------------------------------------------
-    # CEK PAKET
-    # -----------------------------------------------------
-
-    package_key = user_packages.get(
-        user_id
-    )
+    package_key = user_packages.get(user_id)
 
     if not package_key:
-
         await message.answer(
-
             """
 ⚠️ <b>PAKET BELUM DIPILIH</b>
 
 Silakan pilih paket terlebih dahulu
 melalui /start.
 """,
-
             parse_mode="HTML"
-
         )
-
         return
-
-    # -----------------------------------------------------
-    # SIMPAN BUKTI
-    # -----------------------------------------------------
-
-    user_proofs[
-        user_id
-    ] = message.photo[-1].file_id
-
-    # -----------------------------------------------------
-    # AKTIFKAN PROFILE PENDING
-    # -----------------------------------------------------
-
-    user_profile_pending[
-        user_id
-    ] = True
-
-    logger.info(
-        "Bukti pembayaran diterima | "
-        "user_id=%s | "
-        "username=%s | "
-        "package=%s",
-        user_id,
-        message.from_user.username,
-        package_key
-    )
-
-    # -----------------------------------------------------
-    # MINTA DATA USER
-    # -----------------------------------------------------
-
-    text = """
-✅ <b>BUKTI PEMBAYARAN DITERIMA</b>
-
-━━━━━━━━━━━━━━━━━━
-
-Untuk menyesuaikan <b>AI dengan Spread dari Broker yang kamu gunakan</b>, silakan isi data berikut:
-
-<b>Nama:</b>
-<b>Broker yang digunakan:</b>
-<b>Gmail:</b>
-
-━━━━━━━━━━━━━━━━━━
-
-📌 <b>Contoh pengisian:</b>
-
-<code>Nama: Budi
-Broker yang digunakan: XM
-Gmail: budi@gmail.com</code>
-
-━━━━━━━━━━━━━━━━━━
-
-Silakan <b>kirim format tersebut kembali ke sini</b>.
-
-"""
-
-    await message.answer(
-
-        text,
-
-        parse_mode="HTML"
-
-    )
-
-
-# =========================================================
-# RECEIVE USER PROFILE
-#
-# USER:
-#
-# Nama: Budi
-# Broker yang digunakan: XM
-# Gmail: budi@gmail.com
-#
-# → BOT KIRIM KE PAYMENT_GROUP_ID
-# =========================================================
-
-@dp.message(
-    F.text
-)
-async def receive_profile(
-    message: Message
-):
-
-    user_id = message.from_user.id
-
-    text = message.text or ""
-
-    # -----------------------------------------------------
-    # COMMAND
-    # -----------------------------------------------------
-
-    if text.startswith("/"):
-
-        return
-
-    # -----------------------------------------------------
-    # HANYA JIKA SEDANG MENUNGGU PROFILE
-    # -----------------------------------------------------
-
-    if not user_profile_pending.get(
-        user_id,
-        False
-    ):
-
-        # Kalau bukan profile,
-        # biarkan handler performance
-        # menangani pesan admin.
-        if is_admin(user_id):
-
-            await process_performance_message(
-                message
-            )
-
-        return
-
-    # -----------------------------------------------------
-    # PARSE PROFILE
-    # -----------------------------------------------------
-
-    profile = parse_user_profile(
-        text
-    )
-
-    if not profile:
-
-        await message.answer(
-
-            """
-❌ <b>FORMAT BELUM SESUAI</b>
-
-Silakan kirim dengan format:
-
-<code>Nama: Budi
-Broker yang digunakan: XM
-Gmail: budi@gmail.com</code>
-
-Pastikan:
-
-✅ Nama diisi
-✅ Broker diisi
-✅ Gmail diisi dengan email yang valid
-""",
-
-            parse_mode="HTML"
-
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # CEK BUKTI
-    # -----------------------------------------------------
-
-    proof = user_proofs.get(
-        user_id
-    )
-
-    if not proof:
-
-        await message.answer(
-
-            """
-❌ Bukti pembayaran tidak ditemukan.
-
-Silakan kirim ulang foto bukti pembayaran.
-""",
-
-        )
-
-        user_profile_pending.pop(
-            user_id,
-            None
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # CEK PAKET
-    # -----------------------------------------------------
-
-    package_key = user_packages.get(
-        user_id
-    )
-
-    if not package_key:
-
-        await message.answer(
-
-            """
-❌ Paket pembayaran tidak ditemukan.
-
-Silakan mulai kembali melalui /start.
-""",
-
-        )
-
-        user_profile_pending.pop(
-            user_id,
-            None
-        )
-
-        return
-
-    # -----------------------------------------------------
-    # PACKAGE DATA
-    # -----------------------------------------------------
 
     try:
-
-        data = get_package_data(
-            package_key
-        )
-
+        data = get_package_data(package_key)
     except Exception:
-
-        await message.answer(
-
-            "❌ Data paket tidak ditemukan."
-
-        )
-
+        await message.answer("❌ Data paket tidak ditemukan. Silakan mulai kembali melalui /start.")
         return
 
-    # -----------------------------------------------------
-    # SIMPAN SEMENTARA
-    #
-    # TIDAK MASUK SHEETS
-    # -----------------------------------------------------
+    proof = message.photo[-1].file_id
+    user_proofs[user_id] = proof
+    user_payment_status[user_id] = "PROOF_SENT"
 
-    user_broker_data[
-        user_id
-    ] = profile
-
-    # -----------------------------------------------------
-    # ADMIN KEYBOARD
-    # -----------------------------------------------------
+    username = f"@{message.from_user.username}" if message.from_user.username else "-"
+    full_name = message.from_user.full_name or "-"
 
     admin_keyboard = InlineKeyboardMarkup(
-
-        inline_keyboard=[
-
-            [
-
-                InlineKeyboardButton(
-
-                    text="✅ APPROVE",
-
-                    callback_data=(
-                        f"approve_{user_id}"
-                    )
-
-                ),
-
-                InlineKeyboardButton(
-
-                    text="❌ REJECT",
-
-                    callback_data=(
-                        f"reject_{user_id}"
-                    )
-
-                )
-
-            ]
-
-        ]
-
+        inline_keyboard=[[
+            InlineKeyboardButton(text="✅ APPROVE", callback_data=f"approve_{user_id}"),
+            InlineKeyboardButton(text="❌ REJECT", callback_data=f"reject_{user_id}")
+        ]]
     )
-
-    # -----------------------------------------------------
-    # USERNAME
-    # -----------------------------------------------------
-
-    username = (
-
-        f"@{message.from_user.username}"
-
-        if message.from_user.username
-
-        else "-"
-
-    )
-
-    # -----------------------------------------------------
-    # GROUP ACCESS
-    # -----------------------------------------------------
-
-    group_access = (
-
-        "✅ Ya"
-
-        if package_has_group_access(
-            package_key
-        )
-
-        else "❌ Tidak"
-
-    )
-
-    # -----------------------------------------------------
-    # ADMIN CAPTION
-    # -----------------------------------------------------
 
     admin_text = f"""
 📥 <b>PAYMENT VERIFICATION</b>
@@ -1777,8 +1208,8 @@ Silakan mulai kembali melalui /start.
 
 👤 <b>DATA USER</b>
 
-Nama:
-<b>{profile['nama']}</b>
+Nama Telegram:
+<b>{full_name}</b>
 
 Username:
 <b>{username}</b>
@@ -1788,780 +1219,203 @@ Telegram ID:
 
 ━━━━━━━━━━━━━━━━━━
 
-🏦 <b>BROKER</b>
-
-<b>{profile['broker']}</b>
-
-📧 <b>GMAIL</b>
-
-<b>{profile['gmail']}</b>
-
-━━━━━━━━━━━━━━━━━━
-
 📦 <b>PAKET</b>
-
 {data['label']}
 
 💰 <b>TOTAL</b>
-
 Rp {format_rupiah(data['price'])}
 
-👥 <b>AKSES GRUP</b>
-
-{group_access}
-
-━━━━━━━━━━━━━━━━━━
-
-📸 Bukti pembayaran terlampir
-pada pesan ini.
-
-ℹ️ Broker dan Gmail hanya dikirim
-ke Admin untuk kebutuhan penyesuaian
-AI dengan spread broker.
-
-🔒 <b>Broker/Gmail tidak disimpan
-ke Google Sheets.</b>
+🤖 <b>AKSES</b>
+Signal AI / AI Assistant Only
 
 ━━━━━━━━━━━━━━━━━━
+
+📸 <b>Bukti pembayaran terlampir.</b>
+
+🟡 <b>MENUNGGU PERSETUJUAN ADMIN</b>
 
 Silakan pilih tindakan:
 """
 
-    # -----------------------------------------------------
-    # KIRIM KE PAYMENT GROUP
-    # -----------------------------------------------------
-
     try:
-
         await bot.send_photo(
-
             chat_id=PAYMENT_GROUP_ID,
-
             photo=proof,
-
             caption=admin_text,
-
             reply_markup=admin_keyboard,
-
             parse_mode="HTML"
-
         )
-
         logger.info(
-
-            "Payment verification dikirim | "
-            "user=%s | "
-            "package=%s | "
-            "broker=%s | "
-            "gmail=%s",
-
-            user_id,
-
-            package_key,
-
-            profile["broker"],
-
-            profile["gmail"]
-
+            "Payment proof dikirim | user=%s | username=%s | package=%s | price=%s",
+            user_id, username, package_key, data["price"]
         )
-
     except Exception as e:
-
-        logger.exception(
-
-            "Gagal mengirim payment verification "
-            "ke PAYMENT_GROUP_ID | user=%s",
-            user_id
-
-        )
-
+        logger.exception("Gagal mengirim payment proof | user=%s", user_id)
+        user_payment_status[user_id] = "WAITING_PROOF"
         await message.answer(
+            """
+❌ <b>BUKTI BELUM BERHASIL DIKIRIM KE ADMIN</b>
 
-            f"""
-❌ <b>GAGAL MENGIRIM DATA KE ADMIN</b>
-
-Silakan coba lagi beberapa saat.
-
-⚠️ Error:
-<code>{e}</code>
+Terjadi kendala saat meneruskan bukti pembayaran.
+Silakan kirim ulang screenshot pembayaran.
 """,
-
             parse_mode="HTML"
-
         )
-
         return
 
-    # -----------------------------------------------------
-    # PROFILE SUDAH TERKIRIM
-    # -----------------------------------------------------
-
-    user_profile_pending.pop(
-        user_id,
-        None
-    )
-
-    # -----------------------------------------------------
-    # USER CONFIRMATION
-    # -----------------------------------------------------
-
     await message.answer(
-
         """
-✅ <b>DATA BERHASIL DIKIRIM</b>
+✅ <b>BUKTI PEMBAYARAN DITERIMA</b>
 
 ━━━━━━━━━━━━━━━━━━
 
-📸 Bukti pembayaran
-👤 Nama
-🏦 Broker
-📧 Gmail
+Baik, transaksi kamu sedang di-check.
 
-semuanya sudah dikirim ke Admin.
+🟡 <b>Saat ini pembayaran sedang menunggu
+persetujuan Admin.</b>
 
-🟡 <b>Status: MENUNGGU VERIFIKASI</b>
+Mohon tunggu konfirmasi dari Admin.
 
-Setelah Admin menyetujui pembayaran,
-membership kamu akan langsung diaktifkan.
-
-Mohon tunggu konfirmasi Admin.
+Tidak perlu mengirim data tambahan
+seperti Nama, Broker, atau Gmail.
 """,
-
         parse_mode="HTML"
-
     )
 
 
 # =========================================================
-# CREATE ONE-TIME GROUP INVITE
-#
-# 1 ORANG SAJA
-# EXPIRED OTOMATIS 24 JAM
+# TEXT MESSAGE HANDLER
 # =========================================================
 
-async def create_group_invite(
-    user_id: int
-):
-
-    try:
-
-        expire_at = int(
-            (
-                datetime.now()
-                + timedelta(hours=24)
-            ).timestamp()
-        )
-
-        invite = await bot.create_chat_invite_link(
-
-            chat_id=PRIVATE_GROUP_ID,
-
-            name=f"Member {user_id}",
-
-            # Hanya satu orang yang bisa menggunakan
-            member_limit=1,
-
-            # Link expired setelah 24 jam
-            expire_date=expire_at
-
-        )
-
-        logger.info(
-            "Invite grup dibuat | "
-            "user=%s | "
-            "expire=24 jam | "
-            "invite=%s",
-            user_id,
-            invite.invite_link
-        )
-
-        return invite.invite_link
-
-    except Exception:
-
-        logger.exception(
-            "Gagal membuat invite grup | user=%s",
-            user_id
-        )
-
-        return None
-
-
-# =========================================================
-# KICK EXPIRED MEMBER
-#
-# BAN SEBENTAR → UNBAN
-#
-# Efeknya seperti KICK.
-# User tidak permanent banned.
-# =========================================================
-
-async def kick_expired_member(
-    telegram_id: int
-):
-
-    try:
-
-        telegram_id = int(
-            telegram_id
-        )
-
-        logger.info(
-            "[EXPIRED] Mencoba mengeluarkan user=%s",
-            telegram_id
-        )
-
-        # -------------------------------------------------
-        # BAN
-        # -------------------------------------------------
-
-        await bot.ban_chat_member(
-
-            chat_id=PRIVATE_GROUP_ID,
-
-            user_id=telegram_id
-
-        )
-
-        logger.info(
-            "[EXPIRED] User %s berhasil dikeluarkan.",
-            telegram_id
-        )
-
-        # -------------------------------------------------
-        # UNBAN
-        # -------------------------------------------------
-
-        try:
-
-            await bot.unban_chat_member(
-
-                chat_id=PRIVATE_GROUP_ID,
-
-                user_id=telegram_id,
-
-                only_if_banned=True
-
-            )
-
-            logger.info(
-                "[EXPIRED] User %s berhasil di-unban.",
-                telegram_id
-            )
-
-        except Exception as e:
-
-            logger.warning(
-                "[EXPIRED] Gagal unban user=%s: %s",
-                telegram_id,
-                e
-            )
-
-        return True
-
-    except Exception as e:
-
-        logger.exception(
-            "[EXPIRED] Gagal kick user=%s: %s",
-            telegram_id,
-            e
-        )
-
-        return False
-
-
-# =========================================================
-# CHECK EXPIRED MEMBERS
-#
-# Google Sheets → cek expired → kick grup
-# =========================================================
-
-async def check_expired_members():
-
-    logger.info(
-        "=========================================="
-    )
-
-    logger.info(
-        "[EXPIRED CHECK] Mulai pengecekan Google Sheets"
-    )
-
-    try:
-
-        # -------------------------------------------------
-        # AMBIL MEMBER EXPIRED
-        # -------------------------------------------------
-
-        expired_members = await asyncio.to_thread(
-
-            get_expired_group_members
-
-        )
-
-        if not expired_members:
-
-            logger.info(
-                "[EXPIRED CHECK] "
-                "Tidak ada member expired."
-            )
-
-            return
-
-        logger.info(
-            "[EXPIRED CHECK] "
-            "Ditemukan %s member expired.",
-            len(expired_members)
-        )
-
-        # -------------------------------------------------
-        # PROSES MEMBER
-        # -------------------------------------------------
-
-        for member in expired_members:
-
-            telegram_id = member.get(
-                "telegram_id"
-            )
-
-            username = member.get(
-                "username",
-                ""
-            )
-
-            nama = member.get(
-                "nama",
-                ""
-            )
-
-            paket = member.get(
-                "paket",
-                ""
-            )
-
-            expired = member.get(
-                "expired",
-                ""
-            )
-
-            logger.info(
-                "[EXPIRED] "
-                "ID=%s | "
-                "username=%s | "
-                "nama=%s | "
-                "paket=%s | "
-                "expired=%s",
-                telegram_id,
-                username,
-                nama,
-                paket,
-                expired
-            )
-
-            # -------------------------------------------------
-            # VALIDATE ID
-            # -------------------------------------------------
-
-            try:
-
-                telegram_id = int(
-                    telegram_id
+@dp.message(F.text)
+async def text_message_handler(message: Message):
+    text = message.text or ""
+
+    if text.startswith("/"):
+        return
+
+    if not is_admin(message.from_user.id):
+        user_id = message.from_user.id
+        package_key = user_packages.get(user_id)
+
+        if package_key:
+            status = user_payment_status.get(user_id, "WAITING_PROOF")
+
+            if status == "PROOF_SENT":
+                await message.answer(
+                    """
+🟡 <b>PEMBAYARAN SEDANG DIVERIFIKASI</b>
+
+Bukti pembayaran kamu sudah diteruskan
+kepada Admin.
+
+Mohon tunggu persetujuan Admin.
+""",
+                    parse_mode="HTML"
                 )
-
-            except Exception:
-
-                logger.warning(
-                    "[EXPIRED] "
-                    "Telegram ID tidak valid: %s",
-                    telegram_id
-                )
-
-                continue
-
-            # -------------------------------------------------
-            # KICK
-            # -------------------------------------------------
-
-            kicked = await kick_expired_member(
-                telegram_id
-            )
-
-            # -------------------------------------------------
-            # UPDATE SHEET
-            # -------------------------------------------------
-
-            if kicked:
-
-                try:
-
-                    updated = await asyncio.to_thread(
-
-                        update_member_status,
-
-                        telegram_id,
-
-                        "EXPIRED"
-
-                    )
-
-                    if updated is False:
-
-                        logger.warning(
-                            "[SHEET] "
-                            "User %s gagal update EXPIRED.",
-                            telegram_id
-                        )
-
-                    else:
-
-                        logger.info(
-                            "[SHEET] "
-                            "User %s -> EXPIRED",
-                            telegram_id
-                        )
-
-                except Exception as e:
-
-                    logger.exception(
-                        "[SHEET ERROR] "
-                        "user=%s | %s",
-                        telegram_id,
-                        e
-                    )
-
             else:
-
-                logger.warning(
-                    "[EXPIRED] "
-                    "User %s gagal dikeluarkan. "
-                    "Status Sheets tidak diubah.",
-                    telegram_id
+                await message.answer(
+                    """
+📸 Silakan kirim <b>screenshot bukti pembayaran</b>
+ke chat ini setelah melakukan pembayaran.
+""",
+                    parse_mode="HTML"
                 )
-
-    except Exception as e:
-
-        logger.exception(
-            "[EXPIRED CHECK ERROR] %s",
-            e
-        )
-
-    logger.info(
-        "=========================================="
-    )
-
-
-# =========================================================
-# EXPIRED MONITOR
-#
-# CHECK SETIAP 10 MENIT
-# =========================================================
-
-async def expired_monitor():
-
-    logger.info(
-        "=========================================="
-    )
-
-    logger.info(
-        "⏳ EXPIRED MONITOR STARTED"
-    )
-
-    logger.info(
-        "📊 Google Sheets → Check setiap 10 menit"
-    )
-
-    logger.info(
-        "👥 Private Group ID: %s",
-        PRIVATE_GROUP_ID
-    )
-
-    logger.info(
-        "=========================================="
-    )
-
-    # Tunggu bot startup
-    await asyncio.sleep(
-        10
-    )
-
-    while True:
-
-        try:
-
-            await check_expired_members()
-
-        except Exception as e:
-
-            logger.exception(
-                "[EXPIRED MONITOR ERROR] %s",
-                e
+        else:
+            await message.answer(
+                "Silakan gunakan /start untuk memilih paket.",
+                parse_mode="HTML"
             )
+        return
 
-        # -------------------------------------------------
-        # 10 MENIT
-        # -------------------------------------------------
-
-        await asyncio.sleep(
-            600
-        )
+    await process_performance_message(message)
 
 
 # =========================================================
 # APPROVE MEMBER
 # =========================================================
 
-@dp.callback_query(
-    F.data.startswith("approve_")
-)
-async def approve(
-    callback: CallbackQuery
-):
+@dp.callback_query(F.data.startswith("approve_"))
+async def approve(callback: CallbackQuery):
 
-    if not is_admin(
-        callback.from_user.id
-    ):
-
-        await safe_callback_answer(
-
-            callback,
-
-            "Anda bukan admin.",
-
-            True
-
-        )
-
+    if not is_admin(callback.from_user.id):
+        await safe_callback_answer(callback, "Anda bukan admin.", True)
         return
 
-    await remove_keyboard(
-        callback.message
-    )
+    await remove_keyboard(callback.message)
 
-    user_id = int(
-        callback.data.split("_")[1]
-    )
+    try:
+        user_id = int(callback.data.split("_", 1)[1])
+    except Exception:
+        await safe_callback_answer(callback, "User ID tidak valid.", True)
+        return
 
-    package_key = user_packages.get(
-        user_id
-    )
+    package_key = user_packages.get(user_id)
 
     if not package_key:
-
-        await safe_callback_answer(
-
-            callback,
-
-            "Data paket tidak ditemukan",
-
-            True
-
-        )
-
+        await safe_callback_answer(callback, "Data paket tidak ditemukan.", True)
         return
 
     try:
-
-        user = await bot.get_chat(
-            user_id
-        )
-
+        data = get_package_data(package_key)
+        user = await bot.get_chat(user_id)
     except Exception as e:
-
-        logger.exception(
-            "Gagal mengambil data user: %s",
-            e
-        )
-
-        await safe_callback_answer(
-
-            callback,
-
-            "Gagal mengambil data user.",
-
-            True
-
-        )
-
+        logger.exception("Gagal mengambil data user/package | user=%s", user_id)
+        await safe_callback_answer(callback, "Gagal mengambil data user.", True)
         return
 
-    data = get_package_data(
-        package_key
-    )
+    now = datetime.now()
+    expired = (now + timedelta(days=data["days"])).strftime("%d-%m-%Y")
 
-    # =====================================================
-    # EXPIRED
-    # =====================================================
+    username = user.username or ""
+    full_name = user.full_name or ""
 
-    if data["days"] == 9999:
+    member_data = {
+        "telegram_id": user_id,
+        "username": username,
+        "nama": full_name,
+        "paket": data["label"],
+        "harga": data["price"],
+        "register": now.strftime("%d-%m-%Y"),
+        "expired": expired,
+        "status": "ACTIVE"
+    }
 
-        expired = "PERMANENT ACCESS"
-
-    else:
-
-        expired = (
-
-            datetime.now()
-
-            + timedelta(
-                days=data["days"]
-            )
-
-        ).strftime(
-            "%d-%m-%Y"
+    try:
+        saved = await asyncio.to_thread(save_member, member_data)
+        if saved is False:
+            raise RuntimeError("save_member mengembalikan False")
+    except Exception as e:
+        logger.exception("Gagal menyimpan membership | user=%s", user_id)
+        await safe_callback_answer(
+            callback,
+            "Gagal menyimpan membership ke Google Sheets.",
+            True
         )
+        await callback.message.answer(
+            f"""
+❌ <b>AKTIVASI GAGAL</b>
 
-    # =====================================================
-    # SAVE MEMBER
-    #
-    # TETAP SAMA
-    #
-    # Broker dan Gmail SENGAJA TIDAK DIMASUKKAN.
-    # =====================================================
+Membership belum diaktifkan karena data gagal disimpan.
 
-    save_member({
+User ID:
+<code>{user_id}</code>
 
-        "telegram_id":
-            user_id,
-
-        "username":
-            user.username or "",
-
-        "nama":
-            user.full_name,
-
-        "paket":
-            data["label"],
-
-        "harga":
-            data["price"],
-
-        "register":
-            datetime.now().strftime(
-                "%d-%m-%Y"
-            ),
-
-        "expired":
-            expired,
-
-        "status":
-            "ACTIVE"
-
-    })
-
-    logger.info(
-        "Member disimpan ke Google Sheets | "
-        "user=%s | package=%s",
-        user_id,
-        package_key
-    )
-
-    # =====================================================
-    # AI BUTTON
-    # =====================================================
-
-    buttons = [
-
-        [
-
-            InlineKeyboardButton(
-
-                text="🤖 MASUK AI ASSISTANT",
-
-                url=SIGNAL_BOT
-
-            )
-
-        ]
-
-    ]
-
-    # =====================================================
-    # GROUP INVITE
-    # =====================================================
-
-    invite_link = None
-
-    if package_has_group_access(
-        package_key
-    ):
-
-        invite_link = await create_group_invite(
-            user_id
+Error:
+<code>{e}</code>
+""",
+            parse_mode="HTML"
         )
-
-        if invite_link:
-
-            buttons.append(
-
-                [
-
-                    InlineKeyboardButton(
-
-                        text=(
-                            "👥 GABUNG GRUP "
-                            "DISKUSI & SHARING"
-                        ),
-
-                        url=invite_link
-
-                    )
-
-                ]
-
-            )
-
-    # =====================================================
-    # KEYBOARD
-    # =====================================================
+        return
 
     member_keyboard = InlineKeyboardMarkup(
-
-        inline_keyboard=buttons
-
+        inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🤖 MASUK AI ASSISTANT",
+                url=SIGNAL_BOT
+            )
+        ]]
     )
-
-    # =====================================================
-    # MEMBER MESSAGE
-    # =====================================================
-
-    if package_has_group_access(
-        package_key
-    ):
-
-        if invite_link:
-
-            group_access_text = """
-👥 <b>GRUP DISKUSI &amp; SHARING</b>
-
-Anda mendapatkan akses grup private.
-Gunakan tombol di bawah untuk bergabung.
-
-⚠️ Link ini hanya dapat digunakan
-untuk <b>1 anggota</b> dan berlaku
-selama <b>24 jam</b>.
-"""
-
-        else:
-
-            group_access_text = """
-👥 <b>GRUP DISKUSI &amp; SHARING</b>
-
-Pembayaran aktif, tetapi link grup
-belum berhasil dibuat.
-
-Silakan hubungi Admin.
-"""
-
-    else:
-
-        group_access_text = """
-🤖 <b>AKSES AI ASSISTANT</b>
-
-Paket 1 Bulan mendapatkan akses
-AI Assistant Telegram.
-
-ℹ️ Paket ini tidak termasuk akses
-Grup Diskusi &amp; Sharing.
-"""
 
     member_text = f"""
 🎉 <b>MEMBERSHIP AKTIF</b>
@@ -2571,59 +1425,44 @@ Grup Diskusi &amp; Sharing.
 📦 <b>Paket</b>
 {data['label']}
 
-⏳ <b>Masa Aktif</b>
+💰 <b>Pembayaran</b>
+Rp {format_rupiah(data['price'])}
+
+⏳ <b>Berlaku Sampai</b>
 {expired}
 
 ━━━━━━━━━━━━━━━━━━
 
 🚀 <b>AKSES PREMIUM</b>
 
-✅ AI Assistant Telegram
+✅ Signal AI / AI Assistant Telegram
 ✅ Analisa XAUUSD
 ✅ Smart Money Concept
 ✅ Market Intelligence
 
 ━━━━━━━━━━━━━━━━━━
 
-{group_access_text}
-
-Klik tombol di bawah untuk mulai.
+🤖 Klik tombol di bawah untuk mulai
+menggunakan AI Assistant.
 
 Selamat trading bersama
 <b>XAU AI Assistant Gold</b> 🤖
 """
 
-    # =====================================================
-    # SEND MEMBER ACCESS
-    # =====================================================
-
     try:
-
         await bot.send_message(
-
             chat_id=user_id,
-
             text=member_text,
-
             reply_markup=member_keyboard,
-
             parse_mode="HTML"
-
         )
-
     except Exception as e:
-
-        logger.exception(
-            "Gagal mengirim akses member: %s",
-            e
-        )
-
+        logger.exception("Membership tersimpan tetapi akses gagal dikirim | user=%s", user_id)
         await callback.message.answer(
-
             f"""
 ⚠️ <b>MEMBERSHIP TERSIMPAN</b>
 
-Member sudah disimpan ke database,
+Data membership sudah tersimpan,
 tetapi pesan akses gagal dikirim.
 
 User ID:
@@ -2632,89 +1471,33 @@ User ID:
 Error:
 <code>{e}</code>
 """,
-
             parse_mode="HTML"
-
-        )
-
-        return
-
-    # =====================================================
-    # ADMIN CONFIRMATION
-    # =====================================================
-
-    if package_has_group_access(
-        package_key
-    ):
-
-        if invite_link:
-
-            admin_group_status = (
-                "✅ Invite grup berhasil dibuat"
-            )
-
-        else:
-
-            admin_group_status = (
-                "⚠️ Invite grup gagal dibuat"
-            )
-
-    else:
-
-        admin_group_status = (
-            "ℹ️ Paket 1 Bulan — tanpa akses grup"
         )
 
     await callback.message.answer(
-
         f"""
 ✅ <b>MEMBER BERHASIL DIAKTIFKAN</b>
-
-Data membership telah tersimpan
-dan user sudah menerima akses.
 
 📦 Paket:
 <b>{data['label']}</b>
 
+💰 Harga:
+<b>Rp {format_rupiah(data['price'])}</b>
+
+🤖 Akses:
+<b>Signal AI / AI Assistant Only</b>
+
 👥 Grup:
-{admin_group_status}
+<b>Tidak ada</b>
 """,
-
         parse_mode="HTML"
-
     )
 
-    await safe_callback_answer(
+    await safe_callback_answer(callback, "Member aktif")
 
-        callback,
-
-        "Member aktif"
-
-    )
-
-    # =====================================================
-    # CLEANUP TEMP DATA
-    # =====================================================
-
-    user_packages.pop(
-        user_id,
-        None
-    )
-
-    user_proofs.pop(
-        user_id,
-        None
-    )
-
-    user_broker_data.pop(
-        user_id,
-        None
-    )
-
-    user_profile_pending.pop(
-        user_id,
-        None
-    )
+    user_packages.pop(user_id, None)
+    user_proofs.pop(user_id, None)
+    user_payment_status.pop(user_id, None)
 
 
 # =========================================================
@@ -2822,12 +1605,7 @@ diverifikasi.
         None
     )
 
-    user_broker_data.pop(
-        user_id,
-        None
-    )
-
-    user_profile_pending.pop(
+    user_payment_status.pop(
         user_id,
         None
     )
@@ -3135,52 +1913,10 @@ dan memiliki izin posting.
 
 # =========================================================
 # PERFORMANCE ADMIN
-#
-# Handler terpisah supaya tidak bentrok
-# dengan data Broker/Gmail user.
 # =========================================================
 
-@dp.message(
-    F.text
-)
-async def performance_to_channel(
-    message: Message
-):
-
-    # =====================================================
-    # COMMAND JANGAN DIPROSES
-    # =====================================================
-
-    if message.text.startswith("/"):
-
-        return
-
-    # =====================================================
-    # PROFILE USER SEDANG MENUNGGU
-    #
-    # Handler receive_profile yang menangani.
-    # =====================================================
-
-    if user_profile_pending.get(
-        message.from_user.id,
-        False
-    ):
-
-        return
-
-    # =====================================================
-    # ADMIN SAJA
-    # =====================================================
-
-    if not is_admin(
-        message.from_user.id
-    ):
-
-        return
-
-    await process_performance_message(
-        message
-    )
+# Pesan teks user biasa ditangani oleh text_message_handler.
+# Admin tetap dapat mengirim format performance ke channel.
 
 
 # =========================================================
@@ -3216,11 +1952,6 @@ async def main():
     )
 
     logger.info(
-        "👥 Private Group ID: %s",
-        PRIVATE_GROUP_ID
-    )
-
-    logger.info(
         "👨‍💼 Admin IDs: %s",
         ADMIN_IDS
     )
@@ -3233,27 +1964,15 @@ async def main():
     )
 
     logger.info(
-        "🔐 Group Invite = 1 user + expired 24 jam"
+        "🤖 Semua paket = Signal AI / AI Assistant ONLY"
     )
 
     logger.info(
-        "📝 Broker/Gmail = ADMIN ONLY"
+        "👥 Group Access = NONAKTIF untuk semua paket"
     )
 
     logger.info(
-        "📊 Broker/Gmail = TIDAK disimpan ke Google Sheets"
-    )
-
-    logger.info(
-        "⏳ Expired Monitor = aktif setiap 10 menit"
-    )
-
-    # =====================================================
-    # START EXPIRED MONITOR
-    # =====================================================
-
-    asyncio.create_task(
-        expired_monitor()
+        "📝 User tidak diminta Nama / Broker / Gmail"
     )
 
     # =====================================================
