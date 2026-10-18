@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 import re
@@ -6,7 +5,7 @@ import re
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F, BaseMiddleware
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, CommandObject
 from aiogram.types import (
     Message,
     CallbackQuery,
@@ -32,9 +31,8 @@ from spreadsheet import save_member
 # CONFIG
 # =========================================================
 
-PERMANENT_PACKAGE_KEY = "permanent"
-PERMANENT_PACKAGE_LABEL = "AKSES PERMANEN"
-PERMANENT_PRICE = 5_000_000
+# Urutan paket pada menu pilihan (harga & durasi dibaca dari packages.py)
+PACKAGE_ORDER = ["1month", "6month", "12month", "permanent"]
 
 PERFORMANCE_LOT = 0.01
 DOLLAR_PER_PIP_LOT_001 = 0.10
@@ -101,46 +99,41 @@ user_payment_status = {}
 
 
 # =========================================================
-# PACKAGE ACCESS
-# =========================================================
-
-def package_has_group_access(package_key: str) -> bool:
-    return False
-
-
-# =========================================================
-# PACKAGE DATA
+# PACKAGE DATA (MENGIKUTI packages.py)
 # =========================================================
 
 def get_package_data(package_key: str) -> dict:
     """
-    Paket permanen selalu Rp5.000.000.
-    Tidak mengikuti harga promo di packages.py.
+    Harga, label, dan durasi paket selalu diambil dari packages.py.
+    Mengubah harga di packages.py otomatis mengubah seluruh bot.
     """
-
-    if package_key == PERMANENT_PACKAGE_KEY:
-        configured = PACKAGE_MAP.get(
-            PERMANENT_PACKAGE_KEY,
-            {},
-        )
-
-        data = dict(configured)
-
-        data.update({
-            "label": PERMANENT_PACKAGE_LABEL,
-            "price": PERMANENT_PRICE,
-            "days": None,
-        })
-
-        return data
 
     if package_key not in PACKAGE_MAP:
         raise KeyError(f"Paket tidak ditemukan: {package_key}")
 
     data = dict(PACKAGE_MAP[package_key])
-    data["price"] = PERMANENT_PRICE
+
+    data["key"] = package_key
+    data["price"] = int(data["price"])
+    data["days"] = int(data["days"])
 
     return data
+
+
+def get_package_keys() -> list:
+    """Paket yang ditampilkan di menu, sesuai urutan PACKAGE_ORDER."""
+
+    keys = [key for key in PACKAGE_ORDER if key in PACKAGE_MAP]
+
+    # Paket baru di packages.py yang belum ada di PACKAGE_ORDER
+    # tetap ikut ditampilkan di akhir daftar.
+    keys += [key for key in PACKAGE_MAP if key not in keys]
+
+    return keys
+
+
+def calculate_expired(days: int) -> str:
+    return (datetime.now() + timedelta(days=days)).strftime("%d-%m-%Y")
 
 
 # =========================================================
@@ -538,30 +531,80 @@ secara realtime dan terstruktur.</b>
 
 
 # =========================================================
-# SEND PAYMENT QRIS - PERMANENT ONLY
+# PACKAGE MENU
+# =========================================================
+
+def build_package_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+
+    for key in get_package_keys():
+        data = get_package_data(key)
+
+        rows.append([
+            InlineKeyboardButton(
+                text=f"{data['label']} - Rp {format_rupiah(data['price'])}",
+                callback_data=f"pkg_{key}",
+            )
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def send_package_menu(chat_id: int):
+    price_lines = "\n".join(
+        f"• <b>{get_package_data(key)['label']}</b> : "
+        f"Rp {format_rupiah(get_package_data(key)['price'])}"
+        for key in get_package_keys()
+    )
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=f"""
+🤖 <b>XAU AI ASSISTANT GOLD</b>
+
+Analisa XAUUSD berbasis AI
++ Smart Money Concept.
+
+━━━━━━━━━━━━━━━━━━
+
+📦 <b>PILIH PAKET</b>
+
+{price_lines}
+
+━━━━━━━━━━━━━━━━━━
+
+Pilih paket di bawah ini untuk
+menerima QRIS pembayaran.
+""",
+        reply_markup=build_package_keyboard(),
+        parse_mode="HTML",
+    )
+
+
+# =========================================================
+# SEND PAYMENT QRIS
 # =========================================================
 
 async def send_payment_info(
     user_id: int,
     chat_id: int,
-    package_key: str = PERMANENT_PACKAGE_KEY,
+    package_key: str,
 ) -> bool:
 
-    if package_key != PERMANENT_PACKAGE_KEY:
-        logger.warning(
-            "Paket ditolak karena bukan permanen: %s",
-            package_key,
-        )
+    try:
+        data = get_package_data(package_key)
+    except KeyError:
+        logger.warning("Paket tidak dikenali: %s", package_key)
         return False
 
-    user_packages[user_id] = PERMANENT_PACKAGE_KEY
+    user_packages[user_id] = package_key
     user_proofs.pop(user_id, None)
     user_payment_status[user_id] = "WAITING_PROOF"
 
-    data = get_package_data(PERMANENT_PACKAGE_KEY)
+    price_text = format_rupiah(data["price"])
 
     payment_text = f"""
-💳 <b>AKTIVASI SIGNAL AI PERMANEN</b>
+💳 <b>AKTIVASI SIGNAL AI</b>
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -569,10 +612,10 @@ async def send_payment_info(
 {data['label']}
 
 💰 <b>Total Pembayaran</b>
-Rp {format_rupiah(data['price'])}
+Rp {price_text}
 
-♾️ <b>Masa Akses</b>
-PERMANEN
+⏳ <b>Masa Akses</b>
+{data['label']} ({data['days']} hari)
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -587,7 +630,7 @@ Smart Money Concept.
 📌 <b>INSTRUKSI PEMBAYARAN</b>
 
 1️⃣ Scan QRIS di atas
-2️⃣ Lakukan pembayaran Rp 5.000.000
+2️⃣ Lakukan pembayaran Rp {price_text}
 3️⃣ Screenshot bukti pembayaran
 4️⃣ Kirim screenshot ke chat ini
 
@@ -616,8 +659,9 @@ bersama <b>XAU AI Assistant Gold</b>.
         )
 
         logger.info(
-            "QRIS dikirim | user=%s | package=permanent | price=%s",
+            "QRIS dikirim | user=%s | package=%s | price=%s",
             user_id,
+            package_key,
             data["price"],
         )
 
@@ -632,28 +676,34 @@ bersama <b>XAU AI Assistant Gold</b>.
 
 
 # =========================================================
-# START - LANGSUNG KIRIM QRIS
+# START
+# - /start 1month | 6month | 12month | permanent
+#   langsung mengirim QRIS sesuai paket dari landing page.
+# - /start tanpa parameter menampilkan menu paket.
 # =========================================================
 
 @dp.message(CommandStart())
-async def start(message: Message):
+async def start(message: Message, command: CommandObject):
     user = message.from_user
+    payload = (command.args or "").strip()
 
     logger.info(
-        "START diterima | user_id=%s | username=%s",
+        "START diterima | user_id=%s | username=%s | payload=%s",
         user.id,
         user.username,
+        payload or "-",
     )
 
-    sent = await send_payment_info(
-        user_id=user.id,
-        chat_id=message.chat.id,
-        package_key=PERMANENT_PACKAGE_KEY,
-    )
+    if payload in PACKAGE_MAP:
+        sent = await send_payment_info(
+            user_id=user.id,
+            chat_id=message.chat.id,
+            package_key=payload,
+        )
 
-    if not sent:
-        await message.answer(
-            """
+        if not sent:
+            await message.answer(
+                """
 ⚠️ <b>QRIS BELUM BERHASIL DIKIRIM</b>
 
 Terjadi kendala saat menampilkan
@@ -661,22 +711,49 @@ informasi pembayaran.
 
 Silakan tekan /start untuk mencoba kembali.
 """,
-            parse_mode="HTML",
-        )
+                parse_mode="HTML",
+            )
+
+        return
+
+    # Tanpa parameter, atau parameter tidak dikenali
+    # (contoh: "landing") -> tampilkan menu paket.
+    await send_package_menu(message.chat.id)
 
 
 # =========================================================
-# LEGACY PACKAGE CALLBACK
-# Tidak ada menu paket di /start.
+# PILIH PAKET DARI MENU
 # =========================================================
 
 @dp.callback_query(F.data.startswith("pkg_"))
-async def show_payment(callback: CallbackQuery):
-    await safe_callback_answer(
-        callback,
-        "Paket pilihan sudah tidak tersedia. Gunakan /start.",
-        True,
+async def choose_package(callback: CallbackQuery):
+    package_key = callback.data.split("_", 1)[1]
+
+    if package_key not in PACKAGE_MAP:
+        await safe_callback_answer(
+            callback,
+            "Paket tidak tersedia. Gunakan /start.",
+            True,
+        )
+        return
+
+    await safe_callback_answer(callback)
+
+    sent = await send_payment_info(
+        user_id=callback.from_user.id,
+        chat_id=callback.message.chat.id,
+        package_key=package_key,
     )
+
+    if not sent:
+        await callback.message.answer(
+            """
+⚠️ <b>QRIS BELUM BERHASIL DIKIRIM</b>
+
+Silakan tekan /start untuk mencoba kembali.
+""",
+            parse_mode="HTML",
+        )
 
 
 # =========================================================
@@ -721,8 +798,8 @@ async def receive_payment(message: Message):
             """
 ⚠️ <b>PEMBAYARAN BELUM DIMULAI</b>
 
-Silakan tekan /start untuk menerima
-QRIS dan instruksi pembayaran.
+Silakan tekan /start untuk memilih paket
+dan menerima QRIS pembayaran.
 """,
             parse_mode="HTML",
         )
@@ -785,8 +862,8 @@ Telegram ID:
 💰 <b>TOTAL</b>
 Rp {format_rupiah(data['price'])}
 
-♾️ <b>MASA AKSES</b>
-PERMANEN
+⏳ <b>MASA AKSES</b>
+{data['days']} hari
 
 🤖 <b>AKSES</b>
 Signal AI / AI Assistant Only
@@ -898,7 +975,7 @@ setelah menyelesaikan pembayaran.
                 )
         else:
             await message.answer(
-                "Silakan tekan /start untuk menerima QRIS.",
+                "Silakan tekan /start untuk memilih paket.",
                 parse_mode="HTML",
             )
 
@@ -933,10 +1010,10 @@ async def approve(callback: CallbackQuery):
 
     package_key = user_packages.get(user_id)
 
-    if package_key != PERMANENT_PACKAGE_KEY:
+    if package_key not in PACKAGE_MAP:
         await safe_callback_answer(
             callback,
-            "Data pembayaran permanen tidak ditemukan.",
+            "Data pembayaran tidak ditemukan atau sudah diproses.",
             True,
         )
         return
@@ -951,7 +1028,7 @@ async def approve(callback: CallbackQuery):
         return
 
     try:
-        data = get_package_data(PERMANENT_PACKAGE_KEY)
+        data = get_package_data(package_key)
         user = await bot.get_chat(user_id)
     except Exception:
         logger.exception(
@@ -966,7 +1043,7 @@ async def approve(callback: CallbackQuery):
         return
 
     now = datetime.now()
-    expired = "PERMANEN"
+    expired = calculate_expired(data["days"])
 
     username = user.username or ""
     full_name = user.full_name or ""
@@ -975,8 +1052,8 @@ async def approve(callback: CallbackQuery):
         "telegram_id": user_id,
         "username": username,
         "nama": full_name,
-        "paket": PERMANENT_PACKAGE_LABEL,
-        "harga": PERMANENT_PRICE,
+        "paket": data["label"],
+        "harga": data["price"],
         "register": now.strftime("%d-%m-%Y"),
         "expired": expired,
         "status": "ACTIVE",
@@ -1040,13 +1117,13 @@ Error:
 ━━━━━━━━━━━━━━━━━━
 
 📦 <b>Paket</b>
-{PERMANENT_PACKAGE_LABEL}
+{data['label']}
 
 💰 <b>Pembayaran</b>
-Rp {format_rupiah(PERMANENT_PRICE)}
+Rp {format_rupiah(data['price'])}
 
-⏳ <b>Masa Akses</b>
-PERMANEN
+⏳ <b>Aktif Sampai</b>
+{expired}
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -1101,19 +1178,16 @@ Error:
 ✅ <b>MEMBER BERHASIL DIAKTIFKAN</b>
 
 📦 Paket:
-<b>{PERMANENT_PACKAGE_LABEL}</b>
+<b>{data['label']}</b>
 
 💰 Harga:
-<b>Rp {format_rupiah(PERMANENT_PRICE)}</b>
+<b>Rp {format_rupiah(data['price'])}</b>
 
-♾️ Masa akses:
-<b>PERMANEN</b>
+⏳ Aktif sampai:
+<b>{expired}</b>
 
 🤖 Akses:
 <b>Signal AI / AI Assistant Only</b>
-
-👥 Grup diskusi:
-<b>Tidak termasuk</b>
 """,
         parse_mode="HTML",
     )
@@ -1121,7 +1195,7 @@ Error:
     await remove_keyboard(callback.message)
     await safe_callback_answer(
         callback,
-        "Member permanen berhasil diaktifkan.",
+        "Member berhasil diaktifkan.",
     )
 
     user_packages.pop(user_id, None)
@@ -1395,8 +1469,18 @@ di Channel Umum dan memiliki izin posting.
 async def main():
     logger.info("==========================================")
     logger.info("XAU AI Assistant Bot Running")
-    logger.info("Paket: AKSES PERMANEN")
-    logger.info("Harga: Rp %s", format_rupiah(PERMANENT_PRICE))
+
+    for key in get_package_keys():
+        data = get_package_data(key)
+
+        logger.info(
+            "Paket %-10s : %-8s | Rp %s | %s hari",
+            key,
+            data["label"],
+            format_rupiah(data["price"]),
+            data["days"],
+        )
+
     logger.info("Akses grup diskusi: NONAKTIF")
     logger.info("User tidak diminta Nama / Broker / Gmail")
     logger.info("Performance channel: AKTIF")
